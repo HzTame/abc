@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Upload - The Audio Vault</title>
+    <link rel="stylesheet" href="./styles.css?v=20260620-tools" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./upload.js?v=20260620-projects" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="./index.html" aria-label="The Audio Vault">
+        <span class="brand-mark">A</span>
+        <span>The Audio Vault</span>
+      </a>
+
+      <nav class="top-nav" aria-label="เมนูหลัก">
+        <a href="./index.html">Home</a>
+        <a href="./list.html">list</a>
+        <a href="./comm.html">Comm</a>
+        <a href="./about.html">เกี่ยวกับ</a>
+        <a class="active-link" href="./upload.html" data-auth-only hidden>upload</a>
+        <a href="./admin.html" data-admin-only hidden>admin</a>
+      </nav>
+
+      <div class="header-actions">
+        <button class="login-button" id="logoutButton" type="button" hidden>logout</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="upload-hero">
+        <div>
+          <p class="eyebrow">uploader</p>
+          <h1>uploader</h1>
+        </div>
+        <div class="upload-status" id="configStatus">กำลังตรวจสอบ</div>
+      </section>
+
+      <section class="uploader-shell">
+        <section class="upload-card">
+          <div class="section-head compact-head">
+            <div>
+              <p class="section-kicker">รายละเอียดไฟล์</p>
+              <h2>เพิ่มรายการใหม่</h2>
+            </div>
+          </div>
+
+          <form class="upload-form" id="assetForm">
+            <label>
+              ชื่อผลงาน
+              <input id="assetTitle" type="text" placeholder="ใส่ชื่อต้องการที่จะตั้ง" />
+            </label>
+
+            <div class="form-grid">
+              <label>
+                หมวด
+                <select id="assetCategory" required>
+                  <option value="loop">Loop</option>
+                  <option value="plugin">Plugin</option>
+                  <option value="project">Project</option>
+                  <option value="sample">ไฟล์เสียง</option>
+                </select>
+              </label>
+              <label>
+                รูปแบบไฟล์ / BPM
+                <input id="assetFormat" type="text" placeholder="WAV · 140 BPM" />
+              </label>
+            </div>
+
+            <label>
+              รายละเอียด
+              <textarea id="assetDescription" rows="4" placeholder="อธิบายรายละเอียด"></textarea>
+            </label>
+
+            <div class="drop-grid">
+              <label class="file-drop" data-drop-zone="assetFile">
+                <span>ไฟล์ดาวน์โหลด</span>
+                <strong id="fileName">ลากไฟล์หลักมาวาง หรือคลิกเลือก</strong>
+                <small>zip, rar, wav, mp3,หรือไฟล์อื่น ๆ</small>
+                <input id="assetFile" type="file" multiple required />
+              </label>
+
+              <label class="file-drop" data-drop-zone="assetCover">
+                <span>รูปปก</span>
+                <strong id="coverName">ลากรูปปกมาวาง หรือคลิกเลือก</strong>
+                <small>jpg, png, webp ถ้าไม่ใส่จะใช้รูป default</small>
+                <input id="assetCover" type="file" accept="image/*" />
+              </label>
+            </div>
+
+            <div class="progress">
+              <span id="progressBar"></span>
+            </div>
+
+            <button class="primary-action form-action" id="uploadButton" type="submit">อัปโหลด</button>
+          </form>
+        </section>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>The Audio Vault</span>
+      <span>© 2026 RAPEEPHAT REMIX</span>
+    </footer>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>
