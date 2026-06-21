@@ -6,7 +6,7 @@
     <title>Admin - The Audio Vault</title>
     <link rel="stylesheet" href="./styles.css?v=20260621-admin-tabs" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="./admin.js?v=20260621-admin-tabs" defer></script>
+    <script src="./admin.js?v=20260621-views-reset" defer></script>
   </head>
   <body>
     <header class="site-header">
@@ -75,10 +75,11 @@
           </div>
           <form class="admin-reset-form" id="adminResetForm">
             <label>
-              ส่งลิงก์รีเซ็ตรหัสผ่าน
+              อีเมลสมาชิกที่ต้องการรีเซ็ตรหัสผ่าน
               <input id="adminResetEmail" type="email" placeholder="user@example.com" required />
             </label>
-            <button class="secondary-action account-action" type="submit">ส่งลิงก์</button>
+            <p class="auth-help">ระบบจะส่งลิงก์ยืนยันไปยังอีเมล สมาชิกต้องเปิดลิงก์นั้นก่อนจึงจะตั้งรหัสผ่านใหม่ได้</p>
+            <button class="secondary-action account-action" type="submit">ส่งลิงก์ยืนยันรีเซ็ตรหัส</button>
           </form>
           <div class="activity-list" id="activityList"></div>
         </section>

@@ -71,6 +71,7 @@ const STORAGE_BUCKET = "share-files";
 const ADMIN_EMAILS = ["mameenokair@gmail.com"];
 const COMMUNITY_POSTS_TABLE = "community_posts";
 const COMMUNITY_REPLIES_TABLE = "community_replies";
+const COMMUNITY_VIEWER_KEY = "audioVaultCommunityViewer";
 const PENDING_CONFIRMATION_EMAIL_KEY = "audioVaultPendingConfirmationEmail";
 const AUDIO_EXTENSIONS = [".mp3", ".wav", ".ogg", ".oga", ".flac", ".m4a", ".aac", ".webm"];
 const soundWaveBars = Array.from({ length: 76 }, (_, index) => {
@@ -452,6 +453,42 @@ function currentUser() {
   return demoUser;
 }
 
+function communityViewerId() {
+  let viewerId = localStorage.getItem(COMMUNITY_VIEWER_KEY);
+  if (!viewerId) {
+    viewerId = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    localStorage.setItem(COMMUNITY_VIEWER_KEY, viewerId);
+  }
+  return viewerId;
+}
+
+async function trackCommunityViews() {
+  if (!db || !document.body.classList.contains("page-comm") || !communityMessages.length) return;
+  const viewerId = communityViewerId();
+  const results = await Promise.all(
+    communityMessages.map((post) =>
+      db.rpc("record_community_post_view", {
+        p_post_id: post.id,
+        p_viewer_id: viewerId,
+      })
+    )
+  );
+
+  let changed = false;
+  results.forEach((result, index) => {
+    if (result.error) {
+      console.warn("Could not record community view:", result.error.message);
+      return;
+    }
+    const views = Number(result.data || 0);
+    if (communityMessages[index] && communityMessages[index].views !== views) {
+      communityMessages[index].views = views;
+      changed = true;
+    }
+  });
+  if (changed) renderCommunity();
+}
+
 async function loadCommunityMessages() {
   if (!communityPostsNode) return true;
   if (!db) {
@@ -504,6 +541,7 @@ async function loadCommunityMessages() {
     replies: repliesByPost.get(post.id) || [],
   }));
   renderCommunity();
+  void trackCommunityViews();
   return true;
 }
 

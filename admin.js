@@ -47,7 +47,8 @@ const TABLE_NAME = "shared_assets";
 const ACTIVITY_TABLE = "activity_logs";
 const STORAGE_BUCKET = "share-files";
 const ADMIN_EMAILS = ["mameenokair@gmail.com"];
-const COMMUNITY_STORAGE_KEY = "audioVaultCommunityPosts";
+const COMMUNITY_POSTS_TABLE = "community_posts";
+const COMMUNITY_REPLIES_TABLE = "community_replies";
 
 const configured =
   SUPABASE_URL.startsWith("https://") &&
@@ -260,19 +261,46 @@ function renderLogs() {
     .join("");
 }
 
-function loadCommunityPosts() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(COMMUNITY_STORAGE_KEY) || "[]");
-    communityPosts = Array.isArray(saved) ? saved : [];
-  } catch (error) {
-    communityPosts = [];
-    showToast("อ่านข้อมูลโพสต์ไม่สำเร็จ", 5200);
-  }
-  renderCommunityPosts();
-}
+async function loadCommunityPosts() {
+  if (!renderGate() || !communityPostList) return;
+  communityPostList.innerHTML = `<div class="empty-state">กำลังโหลดโพสต์...</div>`;
 
-function saveCommunityPosts() {
-  localStorage.setItem(COMMUNITY_STORAGE_KEY, JSON.stringify(communityPosts));
+  const [postsResult, repliesResult] = await Promise.all([
+    db
+      .from(COMMUNITY_POSTS_TABLE)
+      .select("id,user_id,author,message,created_at,view_count")
+      .order("created_at", { ascending: false })
+      .limit(200),
+    db
+      .from(COMMUNITY_REPLIES_TABLE)
+      .select("id,post_id,user_id,author,message,created_at")
+      .order("created_at", { ascending: true }),
+  ]);
+
+  const error = postsResult.error || repliesResult.error;
+  if (error) {
+    communityPosts = [];
+    communityPostList.innerHTML = `<div class="empty-state">โหลดโพสต์ไม่สำเร็จ: ${escapeHtml(error.message)}</div>`;
+    return;
+  }
+
+  const repliesByPost = new Map();
+  (repliesResult.data || []).forEach((reply) => {
+    const replies = repliesByPost.get(reply.post_id) || [];
+    replies.push(reply);
+    repliesByPost.set(reply.post_id, replies);
+  });
+
+  communityPosts = (postsResult.data || []).map((post) => ({
+    id: post.id,
+    userId: post.user_id,
+    author: post.author,
+    message: post.message,
+    createdAt: post.created_at,
+    views: Number(post.view_count || 0),
+    replies: repliesByPost.get(post.id) || [],
+  }));
+  renderCommunityPosts();
 }
 
 function renderCommunityPosts() {
@@ -353,16 +381,18 @@ async function handleAdminResetPassword(event) {
   const redirectTo = resetUrl.href;
   const submitButton = adminResetForm.querySelector("button");
   submitButton.disabled = true;
-  const { error } = await db.auth.resetPasswordForEmail(email, { redirectTo });
-  submitButton.disabled = false;
+  try {
+    const { error } = await db.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) throw error;
 
-  if (error) {
-    showToast(error.message || "ส่งลิงก์รีเซ็ตไม่สำเร็จ", 5200);
-    return;
+    adminResetForm.reset();
+    showToast(`ส่งคำขอแล้ว หาก ${email} เป็นสมาชิก ระบบจะส่งลิงก์ยืนยันไปที่อีเมล`, 7200);
+  } catch (error) {
+    console.error("Admin password reset request failed:", error);
+    showToast(error.message || "ส่งลิงก์รีเซ็ตไม่สำเร็จ กรุณาตรวจ SMTP", 6200);
+  } finally {
+    submitButton.disabled = false;
   }
-
-  adminResetForm.reset();
-  showToast(`ส่งลิงก์รีเซ็ตไปที่ ${email} แล้ว`, 5200);
 }
 
 async function deleteAsset(assetId) {
@@ -424,26 +454,47 @@ async function deleteAllAssets() {
   }
 }
 
-function deleteCommunityPost(postId) {
+async function deleteCommunityPost(postId) {
   const post = communityPosts.find((item) => String(item.id) === String(postId));
   if (!post) return;
   const ok = window.confirm(`ลบโพสต์ของ ${post.author || "สมาชิก"} ใช่ไหม?`);
   if (!ok) return;
+
+  const button = document.querySelector(`[data-delete-post-id="${CSS.escape(String(postId))}"]`);
+  if (button) button.disabled = true;
+  const { data, error } = await db.from(COMMUNITY_POSTS_TABLE).delete().eq("id", post.id).select("id");
+
+  if (error || !data?.length) {
+    showToast(error ? `ลบโพสต์ไม่สำเร็จ: ${error.message}` : "ไม่มีสิทธิ์ลบโพสต์นี้ กรุณาตรวจ RLS ของแอดมิน", 6200);
+    if (button) button.disabled = false;
+    return;
+  }
+
   communityPosts = communityPosts.filter((item) => String(item.id) !== String(postId));
-  saveCommunityPosts();
   renderCommunityPosts();
   showToast("ลบโพสต์เรียบร้อยแล้ว");
 }
 
-function deleteAllCommunityPosts() {
+async function deleteAllCommunityPosts() {
   if (!communityPosts.length) {
     showToast("ยังไม่มีโพสต์ให้ลบ");
     return;
   }
   const ok = window.confirm(`ลบโพสต์ทั้งหมด ${communityPosts.length} โพสต์ใช่ไหม?`);
   if (!ok) return;
+
+  const ids = communityPosts.map((post) => post.id).filter(Boolean);
+  deleteAllPostsButton.disabled = true;
+  const { data, error } = await db.from(COMMUNITY_POSTS_TABLE).delete().in("id", ids).select("id");
+  deleteAllPostsButton.disabled = false;
+
+  if (error || data?.length !== ids.length) {
+    await loadCommunityPosts();
+    showToast(error ? `ลบโพสต์ทั้งหมดไม่สำเร็จ: ${error.message}` : "ลบได้ไม่ครบ กรุณาเพิ่มสิทธิ์ RLS สำหรับแอดมิน", 6200);
+    return;
+  }
+
   communityPosts = [];
-  saveCommunityPosts();
   renderCommunityPosts();
   showToast("ลบโพสต์ทั้งหมดเรียบร้อยแล้ว");
 }
@@ -458,15 +509,13 @@ async function initAuth() {
   session = data.session;
 
   if (renderGate()) {
-    await Promise.all([loadAssets(), loadLogs()]);
-    loadCommunityPosts();
+    await Promise.all([loadAssets(), loadLogs(), loadCommunityPosts()]);
   }
 
   db.auth.onAuthStateChange(async (_event, nextSession) => {
     session = nextSession;
     if (renderGate()) {
-      await Promise.all([loadAssets(), loadLogs()]);
-      loadCommunityPosts();
+      await Promise.all([loadAssets(), loadLogs(), loadCommunityPosts()]);
     }
   });
 }
