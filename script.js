@@ -698,7 +698,7 @@ function renderItems() {
     .map((item) => {
       const active = item.id === activePreviewId;
       const hasPlayer = active && activePreviewIsAudio;
-      const canPreview = item.category !== "project";
+      const canPreview = isAudioAsset(item);
       const hasCover = Boolean(item.coverUrl);
       const cardClass = `asset-card${active ? " is-playing" : ""}${active && previewPaused ? " is-paused" : ""}${hasCover ? "" : " no-cover"}`;
       const downloadCountAttr = item.size ? "" : ` data-download-count="${esc(item.id)}"`;
@@ -912,6 +912,11 @@ function stopPreview() {
 }
 
 async function previewItem(item) {
+  if (!isAudioAsset(item)) {
+    showToast("ไฟล์นี้ไม่ใช่ไฟล์เสียง สามารถดาวน์โหลดได้อย่างเดียว");
+    return;
+  }
+
   if (activePreviewId === item.id) {
     stopPreview();
     return;

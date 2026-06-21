@@ -4,9 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Admin - The Audio Vault</title>
-    <link rel="stylesheet" href="./styles.css?v=20260620-tools" />
+    <link rel="stylesheet" href="./styles.css?v=20260621-admin-tabs" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="./admin.js?v=20260620-admin-tools" defer></script>
+    <script src="./admin.js?v=20260621-admin-tabs" defer></script>
   </head>
   <body>
     <header class="site-header">
@@ -44,8 +44,14 @@
         <a class="primary-action form-action" href="./index.html">ไปหน้าแรก</a>
       </section>
 
-      <section class="admin-grid" id="adminContent" hidden>
-        <section class="admin-panel">
+      <section class="admin-grid admin-tab-layout" id="adminContent" hidden>
+        <div class="admin-tabs" role="tablist" aria-label="เครื่องมือแอดมิน">
+          <button class="admin-tab active" type="button" role="tab" aria-selected="true" aria-controls="adminAssetsPanel" data-admin-tab="assets">ไฟล์อัปโหลด</button>
+          <button class="admin-tab" type="button" role="tab" aria-selected="false" aria-controls="adminPostsPanel" data-admin-tab="posts">โพสต์สมาชิก</button>
+          <button class="admin-tab" type="button" role="tab" aria-selected="false" aria-controls="adminLogsPanel" data-admin-tab="logs">บันทึกและรีเซ็ตรหัส</button>
+        </div>
+
+        <section class="admin-panel" id="adminAssetsPanel" role="tabpanel" data-admin-panel="assets">
           <div class="admin-panel-head">
             <div>
               <p class="section-kicker">รายการอัปโหลด</p>
@@ -59,7 +65,7 @@
           <div class="admin-list" id="assetList"></div>
         </section>
 
-        <section class="admin-panel">
+        <section class="admin-panel" id="adminLogsPanel" role="tabpanel" data-admin-panel="logs" hidden>
           <div class="admin-panel-head">
             <div>
               <p class="section-kicker">บันทึกกิจกรรม</p>
@@ -77,7 +83,7 @@
           <div class="activity-list" id="activityList"></div>
         </section>
 
-        <section class="admin-panel admin-post-panel">
+        <section class="admin-panel admin-post-panel" id="adminPostsPanel" role="tabpanel" data-admin-panel="posts" hidden>
           <div class="admin-panel-head">
             <div>
               <p class="section-kicker">COMMUNITY POSTS</p>

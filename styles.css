@@ -1295,6 +1295,57 @@ body.page-comm .community-post {
   gap: 18px;
 }
 
+.admin-tab-layout {
+  display: block;
+}
+
+.admin-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(246, 241, 234, 0.82);
+  padding: 6px;
+}
+
+.admin-tab {
+  min-width: 0;
+  min-height: 42px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+  padding: 8px 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.admin-tab:hover,
+.admin-tab.active {
+  background: var(--ink);
+  color: #fff;
+}
+
+.admin-tab-layout .admin-panel[hidden] {
+  display: none;
+}
+
+.admin-tab-layout .admin-list,
+.admin-tab-layout .activity-list {
+  max-height: min(58vh, 520px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+
+.admin-tab-layout .admin-row,
+.admin-tab-layout .activity-item {
+  padding: 10px;
+}
+
 .admin-panel {
   min-width: 0;
   padding: 18px;

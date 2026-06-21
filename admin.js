@@ -75,6 +75,8 @@ const deleteAllPostsButton = document.querySelector("#deleteAllPosts");
 const adminResetForm = document.querySelector("#adminResetForm");
 const adminResetEmail = document.querySelector("#adminResetEmail");
 const toast = document.querySelector("#toast");
+const adminTabButtons = document.querySelectorAll("[data-admin-tab]");
+const adminPanels = document.querySelectorAll("[data-admin-panel]");
 
 let session = null;
 let assets = [];
@@ -87,6 +89,17 @@ function showToast(message, duration = 3200) {
   toast.classList.add("show");
   clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => toast.classList.remove("show"), duration);
+}
+
+function setAdminTab(tabName) {
+  adminTabButtons.forEach((button) => {
+    const active = button.dataset.adminTab === tabName;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  adminPanels.forEach((panel) => {
+    panel.hidden = panel.dataset.adminPanel !== tabName;
+  });
 }
 
 function currentUser() {
@@ -476,6 +489,9 @@ refreshLogs.addEventListener("click", loadLogs);
 refreshPosts.addEventListener("click", loadCommunityPosts);
 deleteAllPostsButton.addEventListener("click", deleteAllCommunityPosts);
 adminResetForm.addEventListener("submit", handleAdminResetPassword);
+adminTabButtons.forEach((button) => {
+  button.addEventListener("click", () => setAdminTab(button.dataset.adminTab));
+});
 logoutButton.addEventListener("click", async () => {
   if (db) await db.auth.signOut();
   window.location.assign("./index.html");
