@@ -6,7 +6,7 @@
     <title>ชุมชน | ABC CLUB</title>
     <link rel="stylesheet" href="./styles.css?v=20260620-recovery" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="./script.js?v=20260620-recovery" defer></script>
+    <script src="./script.js?v=20260621-email-security" defer></script>
   </head>
   <body class="page-comm">
     <header class="site-header">
@@ -169,6 +169,7 @@
           </label>
           <p class="auth-help reset-only" hidden>ใส่อีเมลที่เคยสมัครไว้ แล้วระบบจะส่งลิงก์สำหรับตั้งรหัสผ่านใหม่ไปที่อีเมล</p>
           <button class="primary-action form-action" id="authSubmit" type="submit">ล็อกอิน</button>
+          <button class="text-action" id="resendConfirmationButton" type="button" hidden>ส่งอีเมลยืนยันอีกครั้ง</button>
           <button class="text-action" id="forgotPasswordButton" type="button">ลืมรหัสผ่าน?</button>
         </form>
 
@@ -215,11 +216,8 @@
           </form>
 
           <form class="account-form" id="passwordForm">
-            <label>
-              แก้ไขรหัสผ่าน
-              <input id="newPassword" type="password" placeholder="อย่างน้อย 6 ตัวอักษร" minlength="6" />
-            </label>
-            <button class="secondary-action account-action" type="submit">บันทึกรหัสผ่าน</button>
+            <p class="auth-help">เพื่อความปลอดภัย ระบบจะส่งลิงก์เปลี่ยนรหัสผ่านไปยังอีเมลที่ยืนยันแล้วเท่านั้น</p>
+            <button class="secondary-action account-action" type="submit">ส่งลิงก์เปลี่ยนรหัสผ่าน</button>
           </form>
 
           <button class="danger-button" id="logoutButton" type="button">ออกจากระบบ</button>

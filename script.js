@@ -69,8 +69,9 @@ const TABLE_NAME = "shared_assets";
 const ACTIVITY_TABLE = "activity_logs";
 const STORAGE_BUCKET = "share-files";
 const ADMIN_EMAILS = ["mameenokair@gmail.com"];
-const COMMUNITY_STORAGE_KEY = "audioVaultCommunityPosts";
-const COMMUNITY_VIEWER_KEY = "audioVaultCommunityViewer";
+const COMMUNITY_POSTS_TABLE = "community_posts";
+const COMMUNITY_REPLIES_TABLE = "community_replies";
+const PENDING_CONFIRMATION_EMAIL_KEY = "audioVaultPendingConfirmationEmail";
 const AUDIO_EXTENSIONS = [".mp3", ".wav", ".ogg", ".oga", ".flac", ".m4a", ".aac", ".webm"];
 const soundWaveBars = Array.from({ length: 76 }, (_, index) => {
   const mainShape = Math.abs(Math.sin(index * 0.72)) * 34;
@@ -205,8 +206,8 @@ const emailInput = document.querySelector("#email");
 const passwordInput = document.querySelector("#password");
 const profileNameInput = document.querySelector("#profileName");
 const newEmailInput = document.querySelector("#newEmail");
-const newPasswordInput = document.querySelector("#newPassword");
 const forgotPasswordButton = document.querySelector("#forgotPasswordButton");
+const resendConfirmationButton = document.querySelector("#resendConfirmationButton");
 const recoveryPasswordForm = document.querySelector("#recoveryPasswordForm");
 const recoveryPasswordInput = document.querySelector("#recoveryPassword");
 const recoveryPasswordConfirmInput = document.querySelector("#recoveryPasswordConfirm");
@@ -232,7 +233,7 @@ let authMode = "signin";
 let session = null;
 let passwordRecoveryActive = false;
 let demoUser = JSON.parse(localStorage.getItem("soundshareDemoUser") || "null");
-let communityMessages = loadCommunityMessages();
+let communityMessages = [];
 let audioCtx;
 let previewAudio;
 let previewTimer;
@@ -451,49 +452,59 @@ function currentUser() {
   return demoUser;
 }
 
-function loadCommunityMessages() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(COMMUNITY_STORAGE_KEY) || "[]");
-    return Array.isArray(saved) ? saved : [];
-  } catch (error) {
-    console.warn("Could not read community posts:", error.message);
-    return [];
+async function loadCommunityMessages() {
+  if (!communityPostsNode) return true;
+  if (!db) {
+    communityMessages = [];
+    renderCommunity();
+    return false;
   }
-}
 
-function saveCommunityMessages() {
-  localStorage.setItem(COMMUNITY_STORAGE_KEY, JSON.stringify(communityMessages));
-}
+  const [postsResult, repliesResult] = await Promise.all([
+    db
+      .from(COMMUNITY_POSTS_TABLE)
+      .select("id,user_id,author,message,created_at")
+      .order("created_at", { ascending: false })
+      .limit(100),
+    db
+      .from(COMMUNITY_REPLIES_TABLE)
+      .select("id,post_id,user_id,author,message,created_at")
+      .order("created_at", { ascending: true }),
+  ]);
 
-function communityId(prefix) {
-  const value = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `${prefix}-${value}`;
-}
-
-function communityViewerId() {
-  let viewerId = localStorage.getItem(COMMUNITY_VIEWER_KEY);
-  if (!viewerId) {
-    viewerId = communityId("viewer");
-    localStorage.setItem(COMMUNITY_VIEWER_KEY, viewerId);
+  const error = postsResult.error || repliesResult.error;
+  if (error) {
+    console.error("Could not load community posts:", error);
+    communityMessages = [];
+    renderCommunity();
+    showToast("โหลดโพสต์ไม่สำเร็จ กรุณาตรวจตารางและ RLS ใน Supabase", 6200);
+    return false;
   }
-  return viewerId;
-}
 
-function trackCommunityViews() {
-  if (!document.body.classList.contains("page-comm") || !communityMessages.length) return;
-  const viewerId = communityViewerId();
-  let changed = false;
-
-  communityMessages.forEach((post) => {
-    if (!Array.isArray(post.viewers)) post.viewers = [];
-    if (post.viewers.includes(viewerId)) return;
-    const previousViews = Number(post.views || 0);
-    post.viewers.push(viewerId);
-    post.views = Math.max(previousViews + 1, post.viewers.length);
-    changed = true;
+  const repliesByPost = new Map();
+  (repliesResult.data || []).forEach((reply) => {
+    const replies = repliesByPost.get(reply.post_id) || [];
+    replies.push({
+      id: reply.id,
+      userId: reply.user_id,
+      author: reply.author,
+      message: reply.message,
+      createdAt: reply.created_at,
+    });
+    repliesByPost.set(reply.post_id, replies);
   });
 
-  if (changed) saveCommunityMessages();
+  communityMessages = (postsResult.data || []).map((post) => ({
+    id: post.id,
+    userId: post.user_id,
+    author: post.author,
+    message: post.message,
+    createdAt: post.created_at,
+    views: 0,
+    replies: repliesByPost.get(post.id) || [],
+  }));
+  renderCommunity();
+  return true;
 }
 
 function communityTime(value) {
@@ -510,7 +521,6 @@ function renderCommunity() {
   const user = currentUser();
   postComposer.hidden = !user;
   communityLogin.hidden = Boolean(user);
-  trackCommunityViews();
 
   if (!communityMessages.length) {
     communityPostsNode.innerHTML = `<div class="community-empty">ยังไม่มีข้อความ เริ่มบทสนทนาแรกของชุมชนได้เลย</div>`;
@@ -562,7 +572,7 @@ function renderCommunity() {
     .join("");
 }
 
-function handlePostSubmit(event) {
+async function handlePostSubmit(event) {
   event.preventDefault();
   const user = currentUser();
   const message = postMessageInput?.value.trim();
@@ -571,20 +581,28 @@ function handlePostSubmit(event) {
     return;
   }
   if (!message) return;
+  if (!db) {
+    showToast("ยังไม่ได้เชื่อมต่อ Supabase");
+    return;
+  }
 
-  communityMessages.unshift({
-    id: communityId("post"),
-    userId: user.id,
+  const submitButton = postComposer.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  const { error } = await db.from(COMMUNITY_POSTS_TABLE).insert({
+    user_id: user.id,
     author: user.name || user.email || "สมาชิก",
     message: message.slice(0, 800),
-    createdAt: new Date().toISOString(),
-    views: 0,
-    viewers: [],
-    replies: [],
   });
-  saveCommunityMessages();
+  submitButton.disabled = false;
+
+  if (error) {
+    console.error("Could not create community post:", error);
+    showToast(`โพสต์ไม่สำเร็จ: ${error.message}`, 6200);
+    return;
+  }
+
   postComposer.reset();
-  renderCommunity();
+  await loadCommunityMessages();
   showToast("โพสต์ข้อความแล้ว");
 }
 
@@ -603,7 +621,7 @@ function handleCommunityClick(event) {
   if (!form.hidden) form.querySelector("textarea")?.focus();
 }
 
-function handleReplySubmit(event) {
+async function handleReplySubmit(event) {
   const form = event.target.closest("[data-reply-form]");
   if (!form) return;
   event.preventDefault();
@@ -617,16 +635,28 @@ function handleReplySubmit(event) {
   const message = input?.value.trim();
   const post = communityMessages.find((entry) => entry.id === form.dataset.replyForm);
   if (!message || !post) return;
-  if (!Array.isArray(post.replies)) post.replies = [];
-  post.replies.push({
-    id: communityId("reply"),
-    userId: user.id,
+  if (!db) {
+    showToast("ยังไม่ได้เชื่อมต่อ Supabase");
+    return;
+  }
+
+  const submitButton = form.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  const { error } = await db.from(COMMUNITY_REPLIES_TABLE).insert({
+    post_id: post.id,
+    user_id: user.id,
     author: user.name || user.email || "สมาชิก",
     message: message.slice(0, 500),
-    createdAt: new Date().toISOString(),
   });
-  saveCommunityMessages();
-  renderCommunity();
+  submitButton.disabled = false;
+
+  if (error) {
+    console.error("Could not create community reply:", error);
+    showToast(`ตอบกลับไม่สำเร็จ: ${error.message}`, 6200);
+    return;
+  }
+
+  await loadCommunityMessages();
   showToast("ตอบกลับข้อความแล้ว");
 }
 
@@ -1066,12 +1096,9 @@ function recoveryUrlState() {
   const tokenHash = search.get("token_hash") || hash.get("token_hash") || "";
   const type = search.get("type") || hash.get("type") || "";
   const errorDescription = search.get("error_description") || hash.get("error_description") || "";
-  const isRecovery =
-    search.get("reset_password") === "1" ||
-    type === "recovery" ||
-    Boolean(code) ||
-    Boolean(tokenHash) ||
-    Boolean(hash.get("access_token") && hash.get("refresh_token"));
+  // A confirmation link can also contain `code` or access tokens. Only treat
+  // the callback as password recovery when it is explicitly marked as such.
+  const isRecovery = search.get("reset_password") === "1" || type === "recovery";
 
   return {
     isRecovery,
@@ -1130,6 +1157,46 @@ function emailConfirmationRedirectUrl() {
   return url.href;
 }
 
+function updateResendConfirmationButton() {
+  if (!resendConfirmationButton) return;
+  const pendingEmail = localStorage.getItem(PENDING_CONFIRMATION_EMAIL_KEY) || "";
+  resendConfirmationButton.hidden = authMode !== "signin" || Boolean(currentUser()) || !pendingEmail;
+}
+
+async function handleResendConfirmation() {
+  const email = (localStorage.getItem(PENDING_CONFIRMATION_EMAIL_KEY) || emailInput.value || "")
+    .trim()
+    .toLowerCase();
+
+  if (!email) {
+    showToast("กรุณาใส่อีเมลที่ใช้สมัครก่อน");
+    return;
+  }
+  if (!db) {
+    showToast("ยังไม่ได้เชื่อมต่อ Supabase");
+    return;
+  }
+
+  resendConfirmationButton.disabled = true;
+  try {
+    const { error } = await db.auth.resend({
+      type: "signup",
+      email,
+      options: { emailRedirectTo: emailConfirmationRedirectUrl() },
+    });
+    if (error) throw error;
+
+    localStorage.setItem(PENDING_CONFIRMATION_EMAIL_KEY, email);
+    showToast("ส่งอีเมลยืนยันอีกครั้งแล้ว กรุณาเช็ก Inbox และ Spam", 7200);
+  } catch (error) {
+    console.error("Confirmation resend failed:", error);
+    showToast(authErrorMessage(error, email), 7200);
+  } finally {
+    resendConfirmationButton.disabled = false;
+    updateResendConfirmationButton();
+  }
+}
+
 function cleanRecoveryUrl() {
   const url = new URL(window.location.href);
   url.searchParams.delete("reset_password");
@@ -1178,6 +1245,7 @@ function setAuthMode(mode) {
   forgotPasswordButton.textContent = isReset ? "กลับไปล็อกอิน" : "ลืมรหัสผ่าน?";
   document.body.classList.toggle("signup-mode", isSignup);
   updateAuthPanelState();
+  updateResendConfirmationButton();
 }
 
 function updateAccountUI() {
@@ -1194,8 +1262,8 @@ function updateAccountUI() {
   profileAvatar.textContent = (user?.name || user?.email || "A").trim().slice(0, 1).toUpperCase();
   profileNameInput.value = user?.name || "";
   newEmailInput.value = user?.email || "";
-  newPasswordInput.value = "";
   updateAuthPanelState();
+  updateResendConfirmationButton();
   renderItems();
   renderCommunity();
 }
@@ -1304,40 +1372,49 @@ async function handleAuthSubmit(event) {
   }
 
   const isSignup = authMode === "signup";
-  const request = isSignup
-    ? db.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: emailConfirmationRedirectUrl(),
-          data: { display_name: displayName },
-        },
-      })
-    : db.auth.signInWithPassword({ email, password });
+  authSubmit.disabled = true;
+  try {
+    const request = isSignup
+      ? db.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo: emailConfirmationRedirectUrl(),
+            data: { display_name: displayName },
+          },
+        })
+      : db.auth.signInWithPassword({ email, password });
 
-  const { data, error } = await request;
-  if (error) {
-    showToast(authErrorMessage(error, email), 5200);
-    return;
-  }
+    const { data, error } = await request;
+    if (error) throw error;
 
-  if (isSignup && Array.isArray(data?.user?.identities) && data.user.identities.length === 0) {
-    setAuthMode("signin");
+    if (isSignup && Array.isArray(data?.user?.identities) && data.user.identities.length === 0) {
+      localStorage.setItem(PENDING_CONFIRMATION_EMAIL_KEY, email);
+      setAuthMode("signin");
+      authForm.reset();
+      showToast("อีเมลนี้เคยสมัครแล้ว หากยังไม่ได้ยืนยันให้กดส่งอีเมลยืนยันอีกครั้ง", 7200);
+      return;
+    }
+
+    if (isSignup && !data?.session) {
+      localStorage.setItem(PENDING_CONFIRMATION_EMAIL_KEY, email);
+      setAuthMode("signin");
+      authForm.reset();
+      showToast("ส่งอีเมลยืนยันแล้ว กรุณาเช็ก Inbox และ Spam หรือกดส่งอีกครั้ง", 7200);
+      return;
+    }
+
+    localStorage.removeItem(PENDING_CONFIRMATION_EMAIL_KEY);
+    updateResendConfirmationButton();
+    closeAuthModal();
     authForm.reset();
-    showToast("อีเมลนี้เคยสมัครแล้ว ลองล็อกอินด้วยรหัสผ่านเดิม", 5200);
-    return;
+    showToast(isSignup ? "สมัครและเข้าสู่ระบบแล้ว" : "เข้าสู่ระบบแล้ว");
+  } catch (error) {
+    console.error(isSignup ? "Sign up failed:" : "Sign in failed:", error);
+    showToast(authErrorMessage(error, email), 7200);
+  } finally {
+    authSubmit.disabled = false;
   }
-
-  if (isSignup && !data?.session) {
-    setAuthMode("signin");
-    authForm.reset();
-    showToast("สมัครแล้ว กรุณายืนยันอีเมลก่อนล็อกอิน", 5200);
-    return;
-  }
-
-  closeAuthModal();
-  authForm.reset();
-  showToast(isSignup ? "สมัครและเข้าสู่ระบบแล้ว" : "เข้าสู่ระบบแล้ว");
 }
 
 async function handleProfileSubmit(event) {
@@ -1410,31 +1487,33 @@ async function handleEmailUpdate(event) {
 
 async function handlePasswordUpdate(event) {
   event.preventDefault();
-  const password = newPasswordInput.value;
-  if (!currentUser() || password.length < 6) {
-    showToast("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร", 4200);
+  const user = currentUser();
+  if (!user?.email) {
+    showToast("ไม่พบอีเมลที่ยืนยันแล้วในบัญชีนี้", 5200);
     return;
   }
 
   if (!db) {
-    newPasswordInput.value = "";
-    showToast("บันทึกรหัสผ่านโหมดตัวอย่างแล้ว");
+    showToast("ยังไม่ได้เชื่อมต่อ Supabase");
     return;
   }
 
   const submitButton = passwordForm.querySelector("button");
   submitButton.disabled = true;
-  const { error } = await db.auth.updateUser({ password });
-  submitButton.disabled = false;
+  try {
+    const { error } = await db.auth.resetPasswordForEmail(user.email, {
+      redirectTo: passwordRecoveryRedirectUrl(),
+    });
+    if (error) throw error;
 
-  if (error) {
-    showToast(authErrorMessage(error, ""), 5200);
-    return;
+    passwordForm.classList.remove("is-highlighted");
+    showToast(`ส่งลิงก์เปลี่ยนรหัสผ่านไปที่ ${user.email} แล้ว`, 7200);
+  } catch (error) {
+    console.error("Password change email failed:", error);
+    showToast(authErrorMessage(error, user.email, "reset"), 7200);
+  } finally {
+    submitButton.disabled = false;
   }
-
-  newPasswordInput.value = "";
-  passwordForm.classList.remove("is-highlighted");
-  showToast("แก้ไขรหัสผ่านเสร็จสิ้น");
 }
 
 async function handleRecoveryPasswordSubmit(event) {
@@ -1599,6 +1678,7 @@ closeAuth.addEventListener("click", closeAuthModal);
 logoutButton.addEventListener("click", handleLogout);
 authTabs.forEach((tab) => tab.addEventListener("click", () => setAuthMode(tab.dataset.authMode)));
 forgotPasswordButton.addEventListener("click", () => setAuthMode(authMode === "reset" ? "signin" : "reset"));
+resendConfirmationButton?.addEventListener("click", handleResendConfirmation);
 loginButtons.forEach((button) => button.addEventListener("click", () => openAuth(button.id === "heroLoginButton" ? "signup" : "signin")));
 
 authModal.addEventListener("click", (event) => {
@@ -1608,6 +1688,7 @@ authModal.addEventListener("click", (event) => {
 setAuthMode("signin");
 renderCommunity();
 initAuth();
+loadCommunityMessages();
 loadItems();
 
 if (window.location.hash === "#list") {
