@@ -636,7 +636,7 @@ async function handleReplySubmit(event) {
   const post = communityMessages.find((entry) => entry.id === form.dataset.replyForm);
   if (!message || !post) return;
   if (!db) {
-    showToast("ยังไม่ได้เชื่อมต่อ Supabase");
+    showToast("ยังไม่ได้เชื่อมต่อ ระบบหลังบ้าน");
     return;
   }
 
@@ -1173,7 +1173,7 @@ async function handleResendConfirmation() {
     return;
   }
   if (!db) {
-    showToast("ยังไม่ได้เชื่อมต่อ Supabase");
+    showToast("ยังไม่ได้เชื่อมต่อ ระบบหลังบ้าน");
     return;
   }
 
@@ -1187,7 +1187,7 @@ async function handleResendConfirmation() {
     if (error) throw error;
 
     localStorage.setItem(PENDING_CONFIRMATION_EMAIL_KEY, email);
-    showToast("ส่งอีเมลยืนยันอีกครั้งแล้ว กรุณาเช็ก Inbox และ Spam", 7200);
+    showToast("ส่งอีเมลยืนยันอีกครั้งแล้ว กรุณาเช็ก ในกล่องข้อความอีเมล", 7200);
   } catch (error) {
     console.error("Confirmation resend failed:", error);
     showToast(authErrorMessage(error, email), 7200);
@@ -1400,7 +1400,7 @@ async function handleAuthSubmit(event) {
       localStorage.setItem(PENDING_CONFIRMATION_EMAIL_KEY, email);
       setAuthMode("signin");
       authForm.reset();
-      showToast("ส่งอีเมลยืนยันแล้ว กรุณาเช็ก Inbox และ Spam หรือกดส่งอีกครั้ง", 7200);
+      showToast("ส่งอีเมลยืนยันแล้ว กรุณาเช็กในกล่องข้อความ หรือกดส่งอีกครั้ง", 7200);
       return;
     }
 
@@ -1494,7 +1494,7 @@ async function handlePasswordUpdate(event) {
   }
 
   if (!db) {
-    showToast("ยังไม่ได้เชื่อมต่อ Supabase");
+    showToast("ยังไม่ได้เชื่อมต่อ ระบบหลังบ้าน");
     return;
   }
 
@@ -1566,7 +1566,7 @@ function authErrorMessage(error, email = "", action = "auth") {
   const emptyMessage = !message || message.trim() === "{}" || message.trim() === "[object Object]";
   if (emptyMessage) {
     message = action === "reset"
-      ? "ส่งอีเมลรีเซ็ตไม่สำเร็จ กรุณาตรวจสอบ SMTP แล้วลองใหม่"
+      ? "ส่งอีเมลรีเซ็ตไม่สำเร็จ กรุณาตรวจสอบ ระบบหลังบ้าน แล้วลองใหม่"
       : "ไม่สามารถเข้าสู่ระบบได้";
   }
 
