@@ -71,7 +71,9 @@ const STORAGE_BUCKET = "share-files";
 const ADMIN_EMAILS = ["mameenokair@gmail.com"];
 const COMMUNITY_POSTS_TABLE = "community_posts";
 const COMMUNITY_REPLIES_TABLE = "community_replies";
+const ASSET_COMMENTS_TABLE = "asset_comments";
 const COMMUNITY_VIEWER_KEY = "audioVaultCommunityViewer";
+const ASSET_COMMENTS_KEY = "audioVaultAssetComments";
 const PENDING_CONFIRMATION_EMAIL_KEY = "audioVaultPendingConfirmationEmail";
 const AUDIO_EXTENSIONS = [".mp3", ".wav", ".ogg", ".oga", ".flac", ".m4a", ".aac", ".webm"];
 const soundWaveBars = Array.from({ length: 76 }, (_, index) => {
@@ -167,7 +169,8 @@ const categoryLabels = {
   plugin: "Plugin",
   loop: "Loop",
   project: "Project",
-  sample: "ไฟล์เสียง",
+  music: "Music",
+  sample: "Fx",
 };
 
 const itemsNode = document.querySelector("#items");
@@ -242,6 +245,8 @@ let playerTimer;
 let toastTimer;
 let activePreviewIsAudio = false;
 let previewPaused = false;
+let openAssetId = "";
+const assetCommentsCache = new Map();
 const savedPreviewVolume = Number(localStorage.getItem("soundsharePreviewVolume"));
 let previewVolume = Number.isFinite(savedPreviewVolume) ? savedPreviewVolume : 0.9;
 
@@ -362,31 +367,34 @@ function startPlayerTicker() {
 }
 
 function syncPlayerUi() {
-  const card = document.querySelector(".asset-card.is-playing");
-  if (card) card.classList.toggle("is-paused", Boolean(activePreviewIsAudio && previewAudio?.paused));
+  document.querySelectorAll(".asset-card.is-playing").forEach((card) => {
+    card.classList.toggle("is-paused", Boolean(activePreviewIsAudio && previewAudio?.paused));
+  });
 
-  const player = document.querySelector(".mini-player");
-  if (!player || !previewAudio) return;
+  const players = document.querySelectorAll(".mini-player");
+  if (!players.length || !previewAudio) return;
 
   const duration = Number.isFinite(previewAudio.duration) ? previewAudio.duration : 0;
   const current = Number.isFinite(previewAudio.currentTime) ? previewAudio.currentTime : 0;
   const progress = duration ? Math.round((current / duration) * 1000) : 0;
 
-  const currentNode = player.querySelector("[data-current-time]");
-  const durationNode = player.querySelector("[data-duration]");
-  const seekNode = player.querySelector("[data-seek]");
-  const toggleNode = player.querySelector("[data-toggle-play]");
-  const muteNode = player.querySelector("[data-mute]");
-  const volumeNode = player.querySelector("[data-volume]");
+  players.forEach((player) => {
+    const currentNode = player.querySelector("[data-current-time]");
+    const durationNode = player.querySelector("[data-duration]");
+    const seekNode = player.querySelector("[data-seek]");
+    const toggleNode = player.querySelector("[data-toggle-play]");
+    const muteNode = player.querySelector("[data-mute]");
+    const volumeNode = player.querySelector("[data-volume]");
 
-  if (currentNode) currentNode.textContent = formatTime(current);
-  if (durationNode) durationNode.textContent = formatTime(duration);
-  if (seekNode && document.activeElement !== seekNode) seekNode.value = progress;
-  if (toggleNode) toggleNode.textContent = previewAudio.paused ? "เล่นต่อ" : "พัก";
-  if (muteNode) muteNode.textContent = previewAudio.muted || previewAudio.volume === 0 ? "เปิดเสียง" : "ปิดเสียง";
-  if (volumeNode && document.activeElement !== volumeNode) {
-    volumeNode.value = Math.round((previewAudio.muted ? 0 : previewAudio.volume) * 100);
-  }
+    if (currentNode) currentNode.textContent = formatTime(current);
+    if (durationNode) durationNode.textContent = formatTime(duration);
+    if (seekNode && document.activeElement !== seekNode) seekNode.value = progress;
+    if (toggleNode) toggleNode.textContent = previewAudio.paused ? "เล่นต่อ" : "พัก";
+    if (muteNode) muteNode.textContent = previewAudio.muted || previewAudio.volume === 0 ? "เปิดเสียง" : "ปิดเสียง";
+    if (volumeNode && document.activeElement !== volumeNode) {
+      volumeNode.value = Math.round((previewAudio.muted ? 0 : previewAudio.volume) * 100);
+    }
+  });
 }
 
 async function toggleActiveAudio() {
@@ -722,6 +730,227 @@ function downloadCountLabel(count) {
   return `${Number(count || 0).toLocaleString("th-TH")} โหลด`;
 }
 
+function readAssetComments() {
+  try {
+    const value = JSON.parse(localStorage.getItem(ASSET_COMMENTS_KEY) || "{}");
+    return value && typeof value === "object" ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+function assetComments(itemId) {
+  const key = String(itemId);
+  if (assetCommentsCache.has(key)) return assetCommentsCache.get(key);
+  const comments = readAssetComments()[key];
+  return Array.isArray(comments) ? comments : [];
+}
+
+function saveAssetComment(itemId, comment) {
+  const commentsByAsset = readAssetComments();
+  const key = String(itemId);
+  commentsByAsset[key] = [...(Array.isArray(commentsByAsset[key]) ? commentsByAsset[key] : []), comment];
+  localStorage.setItem(ASSET_COMMENTS_KEY, JSON.stringify(commentsByAsset));
+  assetCommentsCache.set(key, commentsByAsset[key]);
+}
+
+async function loadAssetComments(itemId) {
+  const key = String(itemId);
+  if (!db) return assetComments(itemId);
+
+  const { data, error } = await db
+    .from(ASSET_COMMENTS_TABLE)
+    .select("id,asset_id,user_id,author,message,created_at")
+    .eq("asset_id", key)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.warn("Could not load asset comments:", error.message);
+    return assetComments(itemId);
+  }
+
+  const comments = (data || []).map((comment) => ({
+    id: comment.id,
+    userId: comment.user_id,
+    author: comment.author,
+    text: comment.message,
+    createdAt: comment.created_at,
+  }));
+  assetCommentsCache.set(key, comments);
+  return comments;
+}
+
+function assetShareUrl(item) {
+  const url = new URL("./list.html", window.location.href);
+  url.hash = `asset=${encodeURIComponent(item.id)}`;
+  return url.href;
+}
+
+function formatCommentDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "เมื่อสักครู่";
+  return new Intl.DateTimeFormat("th-TH", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function ensureAssetModal() {
+  let modal = document.querySelector("#assetModal");
+  if (modal) return modal;
+
+  modal = document.createElement("section");
+  modal.className = "asset-modal";
+  modal.id = "assetModal";
+  modal.setAttribute("aria-hidden", "true");
+  modal.setAttribute("aria-label", "รายละเอียดไฟล์");
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function renderAssetModal(item) {
+  const modal = ensureAssetModal();
+  const comments = assetComments(item.id);
+  const user = currentUser();
+  const canPreview = isAudioAsset(item);
+  const active = String(item.id) === String(activePreviewId);
+  const hasPlayer = active && activePreviewIsAudio;
+  const cover = item.coverUrl
+    ? `<img class="asset-detail-cover" src="${esc(item.coverUrl)}" alt="${esc(item.title)}" />`
+    : `<div class="asset-detail-cover asset-detail-placeholder" aria-hidden="true">${esc((item.title || "A").slice(0, 1).toUpperCase())}</div>`;
+
+  modal.innerHTML = `
+    <div class="asset-detail-panel" role="dialog" aria-modal="true" aria-labelledby="assetDetailTitle">
+      <div class="asset-detail-head">
+        <div>
+          <span class="asset-detail-label">${esc(categoryLabels[item.category] || item.category)}</span>
+          <h2 id="assetDetailTitle">${esc(item.title)}</h2>
+        </div>
+        <button class="icon-button" type="button" data-close-asset aria-label="ปิด">×</button>
+      </div>
+
+      <div class="asset-detail-grid">
+        ${cover}
+        <div class="asset-detail-copy">
+          <p>${esc(item.description || "ยังไม่มีคำอธิบายสำหรับไฟล์นี้")}</p>
+          <dl class="asset-detail-meta">
+            <div><dt>ผู้สร้าง</dt><dd>${esc(item.creator)}</dd></div>
+            <div><dt>รูปแบบ</dt><dd>${esc(item.format)}</dd></div>
+            <div><dt>ขนาด</dt><dd>${esc(item.size || "-")}</dd></div>
+            <div><dt>ดาวน์โหลด</dt><dd>${downloadCountLabel(item.downloads)}</dd></div>
+          </dl>
+          <div class="tag-row">${item.tags.map((tag) => `<span>${esc(tag)}</span>`).join("")}</div>
+          ${
+            hasPlayer
+              ? `<div class="mini-player asset-detail-player" data-player="${esc(item.id)}">
+                  <div class="player-time">
+                    <span>PREVIEW</span>
+                    <span><span data-current-time>0:00</span> / <span data-duration>0:00</span></span>
+                  </div>
+                  <input class="seek-slider" type="range" min="0" max="1000" step="1" value="0" data-seek="${esc(item.id)}" aria-label="เลื่อนตำแหน่งเสียง" />
+                  <div class="player-controls">
+                    <button class="player-icon" type="button" data-toggle-play="${esc(item.id)}" aria-label="${previewPaused ? "เล่นต่อ" : "พัก"}">${previewPaused ? "เล่นต่อ" : "พัก"}</button>
+                    <button class="player-icon" type="button" data-restart="${esc(item.id)}" aria-label="เริ่มใหม่">เริ่มใหม่</button>
+                    <button class="player-icon" type="button" data-mute="${esc(item.id)}" aria-label="${previewAudio?.muted ? "เปิดเสียง" : "ปิดเสียง"}">${previewAudio?.muted ? "เปิดเสียง" : "ปิดเสียง"}</button>
+                    <label class="volume-control">
+                      <span>ระดับเสียง</span>
+                      <input type="range" min="0" max="100" step="1" value="${Math.round((previewAudio?.muted ? 0 : previewVolume) * 100)}" data-volume="${esc(item.id)}" aria-label="ปรับเสียง" />
+                    </label>
+                  </div>
+                </div>`
+              : ""
+          }
+          <div class="asset-detail-actions">
+            ${canPreview ? `<button class="preview-button" type="button" data-detail-preview="${esc(item.id)}">${active ? "■ หยุดเสียง" : "▶ ฟังตัวอย่าง"}</button>` : ""}
+            <button class="download-button" type="button" data-detail-download="${esc(item.id)}">ดาวน์โหลด</button>
+            <a class="share-button" href="${esc(assetShareUrl(item))}" target="_blank" rel="noopener" data-share-asset="${esc(item.id)}">แชร์ไฟล์</a>
+          </div>
+        </div>
+      </div>
+
+      <section class="asset-comments" aria-labelledby="assetCommentsTitle">
+        <div class="asset-comments-head">
+          <h3 id="assetCommentsTitle">ความคิดเห็น</h3>
+          <span>${comments.length} ความคิดเห็น</span>
+        </div>
+        <div class="asset-comment-list">
+          ${comments.length
+            ? comments
+                .slice()
+                .reverse()
+                .map(
+                  (comment) => `
+                    <article class="asset-comment">
+                      <div><strong>${esc(comment.author || "ผู้เยี่ยมชม")}</strong><time>${esc(formatCommentDate(comment.createdAt))}</time></div>
+                      <p>${esc(comment.text)}</p>
+                    </article>
+                  `
+                )
+                .join("")
+            : `<p class="asset-comment-empty">ยังไม่มีความคิดเห็น มาเป็นคนแรกที่พูดถึงไฟล์นี้กัน</p>`}
+        </div>
+        ${
+          user
+            ? `<form class="asset-comment-form" data-comment-form="${esc(item.id)}">
+                <label for="assetCommentText">เขียนความคิดเห็นในชื่อ ${esc(user.name || user.email || "สมาชิก")}</label>
+                <textarea id="assetCommentText" maxlength="500" rows="3" required placeholder="ไฟล์นี้เป็นอย่างไรบ้าง..."></textarea>
+                <button class="primary-action" type="submit">ส่งความคิดเห็น</button>
+              </form>`
+            : `<button class="primary-action asset-comment-login" type="button" data-comment-login>เข้าสู่ระบบเพื่อแสดงความคิดเห็น</button>`
+        }
+      </section>
+    </div>
+  `;
+  if (hasPlayer) window.setTimeout(syncPlayerUi, 0);
+}
+
+function openAssetDetails(item, updateUrl = true) {
+  if (!item) return;
+  openAssetId = String(item.id);
+  renderAssetModal(item);
+  const modal = ensureAssetModal();
+  modal.classList.add("open");
+  modal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+  if (updateUrl) history.replaceState(null, "", assetShareUrl(item));
+  window.setTimeout(() => modal.querySelector("[data-close-asset]")?.focus(), 0);
+  void loadAssetComments(item.id).then(() => {
+    if (openAssetId === String(item.id)) renderAssetModal(item);
+  });
+}
+
+function closeAssetDetails() {
+  const modal = ensureAssetModal();
+  modal.classList.remove("open");
+  modal.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+  openAssetId = "";
+  if (window.location.hash.startsWith("#asset=")) history.replaceState(null, "", `${window.location.pathname}${window.location.search}#list`);
+}
+
+function refreshOpenAssetModal() {
+  if (!openAssetId) return;
+  const item = items.find((entry) => String(entry.id) === openAssetId);
+  if (item) renderAssetModal(item);
+}
+
+async function shareAsset(item) {
+  const url = assetShareUrl(item);
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast("เปิดหน้าใหม่และคัดลอกลิงก์แล้ว");
+  } catch {
+    showToast("เปิดหน้าแชร์ในแท็บใหม่แล้ว");
+  }
+}
+
+function openAssetFromHash() {
+  if (!window.location.hash.startsWith("#asset=")) return;
+  const id = decodeURIComponent(window.location.hash.slice(7));
+  const item = items.find((entry) => String(entry.id) === id);
+  if (item) openAssetDetails(item, false);
+}
+
 function renderItems() {
   const visible = visibleItems();
   resultCount.textContent = `พบ ${visible.length} รายการ`;
@@ -740,12 +969,8 @@ function renderItems() {
       const hasCover = Boolean(item.coverUrl);
       const cardClass = `asset-card${active ? " is-playing" : ""}${active && previewPaused ? " is-paused" : ""}${hasCover ? "" : " no-cover"}`;
       const downloadCountAttr = item.size ? "" : ` data-download-count="${esc(item.id)}"`;
-      const canDownload = Boolean(currentUser());
-      const downloadClass = `download-button${canDownload ? "" : " is-locked"}`;
-      const downloadState = canDownload ? "" : ' disabled aria-disabled="true" title="ล็อกอินก่อนดาวน์โหลด"';
-      const downloadLabel = canDownload ? "ดาวน์โหลด" : "ล็อกอินก่อนโหลด";
       return `
-        <article class="${cardClass}" data-type="${esc(item.category)}">
+        <article class="${cardClass}" data-type="${esc(item.category)}" data-open-asset="${esc(item.id)}">
           ${
             hasCover
               ? `
@@ -764,7 +989,7 @@ function renderItems() {
               <span>${esc(item.format)}</span>
               <span${downloadCountAttr}>${esc(item.size || downloadCountLabel(item.downloads))}</span>
             </div>
-            <h3>${esc(item.title)}</h3>
+            <h3><a class="asset-title-button" href="${esc(assetShareUrl(item))}" target="_blank" rel="noopener">${esc(item.title)}</a></h3>
             <p>${esc(item.description)}</p>
             <div class="sound-wave" aria-hidden="true">
               ${soundWaveBars}
@@ -800,7 +1025,7 @@ function renderItems() {
             </div>
             <div class="asset-actions${canPreview ? "" : " download-only"}">
               ${canPreview ? `<button class="preview-button icon-preview" type="button" data-preview="${esc(item.id)}" aria-label="${active ? "หยุดเสียงตัวอย่าง" : "ฟังเสียงตัวอย่าง"}" title="${active ? "หยุด" : "ฟัง"}">${active ? "■" : "▶"}</button>` : ""}
-              <button class="${downloadClass}" type="button" data-download="${esc(item.id)}"${downloadState}>${downloadLabel}</button>
+              <button class="download-button" type="button" data-download="${esc(item.id)}">ดาวน์โหลด</button>
             </div>
           </div>
         </article>
@@ -820,6 +1045,7 @@ async function loadItems() {
   if (!db) {
     items = demoItems.map(normalizeItem);
     renderItems();
+    openAssetFromHash();
     return;
   }
 
@@ -836,6 +1062,7 @@ async function loadItems() {
     items = stableSortItems((data || []).map(normalizeItem));
   }
   renderItems();
+  openAssetFromHash();
 }
 
 function getAudioContext() {
@@ -947,6 +1174,7 @@ function stopPreview() {
   activePreviewIsAudio = false;
   previewPaused = false;
   renderItems();
+  refreshOpenAssetModal();
 }
 
 async function previewItem(item) {
@@ -963,6 +1191,7 @@ async function previewItem(item) {
   stopPreview();
   activePreviewId = item.id;
   renderItems();
+  refreshOpenAssetModal();
 
   const selectedId = item.id;
   const previewUrl = await getPreviewUrl(item);
@@ -974,6 +1203,7 @@ async function previewItem(item) {
     activePreviewIsAudio = true;
     previewPaused = false;
     renderItems();
+    refreshOpenAssetModal();
     previewAudio.src = previewUrl;
     previewAudio.onended = stopPreview;
     previewAudio.ontimeupdate = syncPlayerUi;
@@ -1074,12 +1304,6 @@ async function recordDownload(item) {
 }
 
 async function downloadItem(item) {
-  if (!currentUser()) {
-    showToast("กรุณาล็อกอินก่อนดาวน์โหลด");
-    openAuth("signin");
-    return;
-  }
-
   const fileName = downloadFileName(item);
 
   try {
@@ -1643,6 +1867,7 @@ itemsNode.addEventListener("click", (event) => {
   const muteButton = event.target.closest("[data-mute]");
   const previewButton = event.target.closest("[data-preview]");
   const downloadButton = event.target.closest("[data-download]");
+  const card = event.target.closest("[data-open-asset]");
 
   if (toggleButton) {
     toggleActiveAudio();
@@ -1662,13 +1887,138 @@ itemsNode.addEventListener("click", (event) => {
   if (previewButton) {
     const item = items.find((entry) => entry.id === previewButton.dataset.preview);
     if (item) previewItem(item);
+    return;
   }
 
   if (downloadButton) {
     const item = items.find((entry) => entry.id === downloadButton.dataset.download);
     if (item) downloadItem(item);
+    return;
+  }
+
+  if (card && !event.target.closest("button, input, label, a")) {
+    const item = items.find((entry) => String(entry.id) === card.dataset.openAsset);
+    if (item) window.open(assetShareUrl(item), "_blank", "noopener");
   }
 });
+
+ensureAssetModal().addEventListener("click", (event) => {
+  const modal = event.currentTarget;
+  const closeButton = event.target.closest("[data-close-asset]");
+  const toggleButton = event.target.closest("[data-toggle-play]");
+  const restartButton = event.target.closest("[data-restart]");
+  const muteButton = event.target.closest("[data-mute]");
+  const shareButton = event.target.closest("[data-share-asset]");
+  const previewButton = event.target.closest("[data-detail-preview]");
+  const downloadButton = event.target.closest("[data-detail-download]");
+  const commentLoginButton = event.target.closest("[data-comment-login]");
+
+  if (event.target === modal || closeButton) {
+    closeAssetDetails();
+    return;
+  }
+
+  if (toggleButton) {
+    void toggleActiveAudio();
+    return;
+  }
+
+  if (restartButton) {
+    restartActiveAudio();
+    return;
+  }
+
+  if (muteButton) {
+    toggleMute();
+    return;
+  }
+
+  if (commentLoginButton) {
+    closeAssetDetails();
+    openAuth("signin");
+    showToast("เข้าสู่ระบบก่อนแสดงความคิดเห็น");
+    return;
+  }
+
+  if (shareButton) {
+    const item = items.find((entry) => String(entry.id) === shareButton.dataset.shareAsset);
+    if (item) void shareAsset(item);
+    return;
+  }
+
+  if (previewButton) {
+    const item = items.find((entry) => String(entry.id) === previewButton.dataset.detailPreview);
+    if (item) void previewItem(item);
+    return;
+  }
+
+  if (downloadButton) {
+    const item = items.find((entry) => String(entry.id) === downloadButton.dataset.detailDownload);
+    if (item) void downloadItem(item);
+  }
+});
+
+ensureAssetModal().addEventListener("input", (event) => {
+  const seekInput = event.target.closest("[data-seek]");
+  const volumeInput = event.target.closest("[data-volume]");
+
+  if (seekInput) {
+    seekActiveAudio(seekInput.value);
+    return;
+  }
+
+  if (volumeInput) setActiveVolume(volumeInput.value);
+});
+
+ensureAssetModal().addEventListener("submit", async (event) => {
+  const form = event.target.closest("[data-comment-form]");
+  if (!form) return;
+  event.preventDefault();
+  const textarea = form.querySelector("textarea");
+  const text = textarea?.value.trim();
+  if (!text) return;
+
+  const user = currentUser();
+  if (!user) {
+    closeAssetDetails();
+    openAuth("signin");
+    return;
+  }
+
+  const submitButton = form.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  if (db) {
+    const { error } = await db.from(ASSET_COMMENTS_TABLE).insert({
+      asset_id: String(form.dataset.commentForm),
+      user_id: user.id,
+      author: user.name || user.email || "สมาชิก",
+      message: text.slice(0, 500),
+    });
+    submitButton.disabled = false;
+    if (error) {
+      console.error("Could not create asset comment:", error);
+      showToast(`ส่งความคิดเห็นไม่สำเร็จ: ${error.message}`, 6200);
+      return;
+    }
+    await loadAssetComments(form.dataset.commentForm);
+  } else {
+    saveAssetComment(form.dataset.commentForm, {
+      id: makeId(),
+      text,
+      author: user.name || user.email || "สมาชิก",
+      createdAt: new Date().toISOString(),
+    });
+  }
+  const item = items.find((entry) => String(entry.id) === form.dataset.commentForm);
+  if (item) renderAssetModal(item);
+  showToast("ส่งความคิดเห็นแล้ว");
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && openAssetId) closeAssetDetails();
+});
+
+window.addEventListener("hashchange", openAssetFromHash);
 
 itemsNode.addEventListener("input", (event) => {
   const seekInput = event.target.closest("[data-seek]");

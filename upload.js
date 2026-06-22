@@ -88,6 +88,10 @@ const adminOnlyLinks = document.querySelectorAll("[data-admin-only]");
 const progressBar = document.querySelector("#progressBar");
 const toast = document.querySelector("#toast");
 const titleInput = document.querySelector("#assetTitle");
+const categoryInput = document.querySelector("#assetCategory");
+const mainFileInput = document.querySelector("#assetFile");
+const mainFileType = document.querySelector("#mainFileType");
+const fileHelp = document.querySelector("#fileHelp");
 
 function inputValue(selector) {
   return document.querySelector(selector)?.value?.trim() || "";
@@ -98,7 +102,7 @@ const fileInputs = [
   ["#assetCover", "#coverName"],
 ];
 const defaultFileLabels = {
-  "#fileName": "ลากไฟล์หลักมาวาง หรือคลิกเลือก",
+  "#fileName": "ลากไฟล์มาวาง หรือคลิกเลือก",
   "#coverName": "ลากรูปปกมาวาง หรือคลิกเลือก",
 };
 
@@ -173,7 +177,7 @@ function uploadErrorMessage(error, file) {
   }
 
   if (/mime|content type|not allowed/i.test(message)) {
-    return `ชนิดไฟล์${fileLabel} ยังไม่ได้รับอนุญาตใน bucket ให้เพิ่ม zip/rar ใน Allowed MIME types`;
+    return `ชนิดไฟล์${fileLabel} ยังไม่ได้รับอนุญาตใน bucket ให้เพิ่มประเภทไฟล์เสียงนี้ใน Allowed MIME types`;
   }
 
   if (/invalid key|invalid.*path|invalid.*object/i.test(message)) {
@@ -228,6 +232,32 @@ function syncTitleInputFromFiles(files, inputSelector) {
 function isAudioFile(file) {
   const name = file?.name?.toLowerCase() || "";
   return file?.type?.startsWith("audio/") || AUDIO_EXTENSIONS.some((extension) => name.endsWith(extension));
+}
+
+function syncUploadMode() {
+  const musicMode = categoryInput?.value === "music";
+  if (musicMode) {
+    mainFileInput.accept = "audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.oga,.webm";
+    mainFileInput.dataset.audioOnly = "true";
+    mainFileType.textContent = "ไฟล์เพลงสำหรับแจก";
+    fileHelp.textContent = "MP3, WAV, FLAC, M4A, AAC, OGG หรือ WEBM · เลือกได้หลายเพลง";
+    defaultFileLabels["#fileName"] = "ลากเพลงมาวาง หรือคลิกเลือก";
+  } else {
+    mainFileInput.removeAttribute("accept");
+    delete mainFileInput.dataset.audioOnly;
+    mainFileType.textContent = "ไฟล์ดาวน์โหลด";
+    fileHelp.textContent = "รองรับไฟล์ทั่วไปและเลือกได้หลายไฟล์";
+    defaultFileLabels["#fileName"] = "ลากไฟล์มาวาง หรือคลิกเลือก";
+  }
+
+  const selectedFiles = Array.from(mainFileInput.files || []);
+  if (musicMode && selectedFiles.some((file) => !isAudioFile(file))) {
+    mainFileInput.value = "";
+    document.querySelector("#fileName").textContent = defaultFileLabels["#fileName"];
+    syncTitleInputFromFiles([], "#assetFile");
+  } else if (!selectedFiles.length) {
+    document.querySelector("#fileName").textContent = defaultFileLabels["#fileName"];
+  }
 }
 
 function currentUser() {
@@ -331,6 +361,12 @@ async function handleUpload(event) {
   const mainFiles = Array.from(document.querySelector("#assetFile")?.files || []);
   const coverFile = document.querySelector("#assetCover")?.files?.[0] || null;
   if (!mainFiles.length) return;
+  const selectedCategory = inputValue("#assetCategory") || "sample";
+  const invalidAudioFiles = selectedCategory === "music" ? mainFiles.filter((file) => !isAudioFile(file)) : [];
+  if (invalidAudioFiles.length) {
+    showToast(`เลือกได้เฉพาะไฟล์เพลงเท่านั้น: ${invalidAudioFiles[0].name}`);
+    return;
+  }
 
   uploadButton.disabled = true;
 
@@ -342,7 +378,7 @@ async function handleUpload(event) {
     }
 
     const manualTitle = titleInput?.readOnly ? "" : titleInput?.value?.trim() || "";
-    const category = inputValue("#assetCategory") || "sample";
+    const category = selectedCategory;
     const formatInput = inputValue("#assetFormat");
     const description = inputValue("#assetDescription");
     const creator = inputValue("#assetCreator") || userName();
@@ -355,7 +391,7 @@ async function handleUpload(event) {
     for (const [index, mainFile] of mainFiles.entries()) {
       const uploadPercent = 12 + Math.round((index / mainFiles.length) * 64);
       setProgress(uploadPercent, `กำลังอัปโหลดไฟล์ ${index + 1}/${mainFiles.length}...`);
-      const storedMain = await uploadFile(mainFile, "downloads");
+      const storedMain = await uploadFile(mainFile, category === "music" ? "songs" : "downloads");
       const title = mainFiles.length === 1 && manualTitle ? manualTitle : titleFromFileName(mainFile.name);
       const format = formatInput || mainFile.type || mainFile.name.split(".").pop()?.toUpperCase() || "Download";
 
@@ -373,7 +409,7 @@ async function handleUpload(event) {
         file_name: mainFile.name,
         file_path: storedMain.path,
         download_url: storedMain.publicUrl,
-        audio_url: category === "project" ? "" : isAudioFile(mainFile) ? storedMain.publicUrl : "",
+        audio_url: isAudioFile(mainFile) ? storedMain.publicUrl : "",
       });
     }
 
@@ -414,10 +450,19 @@ fileInputs.forEach(([inputSelector, labelSelector]) => {
     const list = Array.from(nextFiles || []).filter(Boolean);
     if (!list.length) return;
 
-    const acceptedFiles = input.accept === "image/*" ? list.filter((file) => file.type.startsWith("image/")).slice(0, 1) : list;
+    const acceptedFiles = input.accept === "image/*"
+      ? list.filter((file) => file.type.startsWith("image/")).slice(0, 1)
+      : input.dataset.audioOnly === "true"
+        ? list.filter(isAudioFile)
+        : list;
 
     if (input.accept === "image/*" && !acceptedFiles.length) {
       showToast("รูปปกรับเฉพาะไฟล์ภาพ");
+      return;
+    }
+
+    if (input.dataset.audioOnly === "true" && !acceptedFiles.length) {
+      showToast("เลือกได้เฉพาะไฟล์เพลง MP3, WAV, FLAC, M4A, AAC, OGG หรือ WEBM");
       return;
     }
 
@@ -481,10 +526,13 @@ titleInput.addEventListener("input", () => {
   titleInput.dataset.autoTitle = "false";
 });
 
+categoryInput.addEventListener("change", syncUploadMode);
+
 assetForm.addEventListener("submit", handleUpload);
 logoutButton.addEventListener("click", async () => {
   if (db) await db.auth.signOut();
   window.location.assign("./index.html");
 });
 
+syncUploadMode();
 initAuth();

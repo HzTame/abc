@@ -441,6 +441,7 @@ button:disabled {
   background: rgba(255, 253, 249, 0.94);
   box-shadow: 0 10px 30px rgba(57, 45, 33, 0.08);
   transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  cursor: pointer;
 }
 
 .asset-card:hover,
@@ -796,7 +797,7 @@ button:disabled {
 
 .asset-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-top: auto;
 }
@@ -805,13 +806,32 @@ button:disabled {
   grid-template-columns: 1fr;
 }
 
+.asset-title-button {
+  display: inline;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.asset-title-button:hover,
+.asset-title-button:focus-visible {
+  color: var(--accent);
+}
+
 .icon-preview {
   font-size: 1rem;
   line-height: 1;
 }
 
 .preview-button,
-.download-button {
+.download-button,
+.detail-button,
+.share-button {
   min-height: 38px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -1156,6 +1176,243 @@ body.page-comm .community-post {
   color: var(--muted);
   cursor: not-allowed;
   opacity: 0.72;
+}
+
+.detail-button,
+.share-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff5eb;
+  border-color: rgba(233, 119, 66, 0.28);
+  color: #a94f28;
+  text-decoration: none;
+}
+
+body.modal-open {
+  overflow: hidden;
+}
+
+.asset-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 24px;
+  background: rgba(23, 32, 52, 0.48);
+  backdrop-filter: blur(9px);
+}
+
+.asset-modal.open {
+  display: flex;
+}
+
+.asset-detail-panel {
+  width: min(920px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: 0 24px 80px rgba(23, 32, 52, 0.24);
+}
+
+.asset-detail-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px 16px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 253, 249, 0.96);
+  backdrop-filter: blur(10px);
+}
+
+.asset-detail-head h2 {
+  margin: 5px 0 0;
+  font-size: clamp(1.45rem, 3vw, 2.1rem);
+}
+
+.asset-detail-label {
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.asset-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+  gap: 24px;
+  padding: 24px;
+}
+
+.asset-detail-cover {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 16px;
+  object-fit: cover;
+  background: var(--surface-2);
+}
+
+.asset-detail-placeholder {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(145deg, #f9d3b9, #efe5d8 55%, #dbeae4);
+  color: rgba(81, 72, 63, 0.68);
+  font-size: clamp(4rem, 14vw, 8rem);
+  font-weight: 900;
+}
+
+.asset-detail-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.asset-detail-copy > p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.asset-detail-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.asset-detail-meta div {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(240, 233, 223, 0.36);
+}
+
+.asset-detail-meta dt {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.asset-detail-meta dd {
+  overflow-wrap: anywhere;
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.asset-detail-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: auto;
+}
+
+.asset-detail-player {
+  margin-top: 2px;
+}
+
+.asset-detail-player .player-controls {
+  flex-wrap: wrap;
+}
+
+.asset-comments {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+  border-top: 1px solid var(--line);
+  background: rgba(240, 233, 223, 0.25);
+}
+
+.asset-comments-head,
+.asset-comment > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.asset-comments-head h3 {
+  margin: 0;
+}
+
+.asset-comments-head span,
+.asset-comment time {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.asset-comment-list {
+  display: grid;
+  gap: 10px;
+}
+
+.asset-comment {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 13px 14px;
+  background: var(--surface);
+}
+
+.asset-comment p,
+.asset-comment-empty {
+  margin: 8px 0 0;
+  color: #51483f;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.asset-comment-empty {
+  margin: 0;
+  border: 1px dashed #c9baa5;
+  border-radius: 14px;
+  padding: 18px;
+  text-align: center;
+}
+
+.asset-comment-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
+.asset-comment-form label {
+  grid-column: 1 / -1;
+  color: #51483f;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.asset-comment-form textarea {
+  width: 100%;
+  min-height: 78px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 11px 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.asset-comment-form .primary-action {
+  align-self: stretch;
+  min-width: 130px;
+}
+
+.asset-comment-login {
+  justify-self: start;
 }
 
 .empty {
@@ -1601,6 +1858,14 @@ body.page-comm .community-post {
   transition: width 240ms ease;
 }
 
+.upload-state {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: center;
+}
+
 .auth-form {
   display: grid;
   gap: 14px;
@@ -1961,6 +2226,41 @@ body.page-comm .community-post {
 }
 
 @media (max-width: 680px) {
+  .asset-modal {
+    align-items: flex-start;
+    padding: 10px;
+  }
+
+  .asset-detail-panel {
+    max-height: calc(100vh - 20px);
+    border-radius: 16px;
+  }
+
+  .asset-detail-head,
+  .asset-detail-grid,
+  .asset-comments {
+    padding: 16px;
+  }
+
+  .asset-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .asset-detail-cover {
+    max-height: 280px;
+  }
+
+  .asset-detail-actions,
+  .asset-actions,
+  .asset-actions.download-only,
+  .asset-comment-form {
+    grid-template-columns: 1fr;
+  }
+
+  .asset-comment-form .primary-action {
+    min-height: 44px;
+  }
+
   .site-header {
     display: flex;
     flex-wrap: wrap;
