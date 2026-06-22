@@ -1013,6 +1013,7 @@ function assetStaticShareUrl(item) {
   const url = new URL("./share.html", window.location.href);
   url.searchParams.set("asset", String(item.id));
   url.searchParams.set("title", item.title || "ไฟล์จาก The Audio Vault");
+  url.searchParams.set("v", "20260623-no-image");
   return url.href;
 }
 

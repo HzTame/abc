@@ -4,6 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex, nofollow, noimageindex, nosnippet" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="The Audio Vault" />
+    <meta property="og:title" content="The Audio Vault" />
+    <meta property="og:description" content="เปิดหน้ารายละเอียดและดาวน์โหลดไฟล์" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="The Audio Vault" />
+    <meta name="twitter:description" content="เปิดหน้ารายละเอียดและดาวน์โหลดไฟล์" />
     <title>แชร์ไฟล์ - The Audio Vault</title>
   <link rel="stylesheet" href="./styles.css?v=20260622-comment-count" />
   </head>
@@ -40,7 +47,11 @@
         target.hash = `asset=${encodeURIComponent(assetId)}`;
         document.title = `${title} - The Audio Vault`;
 
-        if (assetId) {
+        const previewBot = /bot|crawler|spider|facebookexternalhit|facebot|twitterbot|discordbot|telegrambot|whatsapp|slackbot|linkedinbot|line-poker|googlebot|bingbot/i.test(
+          navigator.userAgent || ""
+        );
+
+        if (assetId && !previewBot) {
           window.setTimeout(() => window.location.replace(target.href), 0);
         }
 
