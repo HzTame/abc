@@ -157,12 +157,16 @@
         <form class="auth-form" id="authForm">
           <label class="signup-only">
             ชื่อโปรไฟล์
-            <input id="displayName" type="text" placeholder="name" />
+            <input id="displayName" type="text" placeholder="ชื่อเล่นหรือชื่อที่ต้องการ" />
           </label>
           <label>
             อีเมล
             <input id="email" type="email" placeholder="you@example.com" required />
           </label>
+          <p class="auth-help signup-only" hidden>
+            ชื่อโปรไฟล์ตั้งเป็นชื่ออะไรก็ได้ ไม่จำเป็นต้องใช้ชื่อจริง<br />
+            อีเมลใช้สมัครได้ตามต้องการ แต่ถ้าลืมหรือต้องการเปลี่ยนรหัสผ่าน ต้องใช้อีเมลที่มีอยู่จริงและรับข้อความได้
+          </p>
           <label id="passwordField">
             รหัสผ่าน
             <input id="password" type="password" placeholder="อย่างน้อย 6 ตัวอักษร" minlength="6" required />
