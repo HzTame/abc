@@ -572,6 +572,10 @@ function communityTime(value) {
   });
 }
 
+function ownsCommunityPost(post, user = currentUser()) {
+  return Boolean(user?.id && post?.userId && String(user.id) === String(post.userId));
+}
+
 function renderCommunity() {
   if (!postComposer || !communityLogin || !communityPostsNode) return;
   const user = currentUser();
@@ -586,6 +590,7 @@ function renderCommunity() {
   communityPostsNode.innerHTML = communityMessages
     .map((post) => {
       const replies = Array.isArray(post.replies) ? post.replies : [];
+      const ownsPost = ownsCommunityPost(post, user);
       return `
         <article class="community-post">
           <div class="post-head">
@@ -598,7 +603,26 @@ function renderCommunity() {
           <p class="post-message">${esc(post.message)}</p>
           <div class="post-actions">
             <button class="reply-toggle" type="button" data-reply-toggle="${esc(post.id)}">ตอบกลับ${replies.length ? ` (${replies.length})` : ""}</button>
+            ${
+              ownsPost
+                ? `<div class="post-owner-actions">
+                    <button class="post-edit-toggle" type="button" data-edit-post="${esc(post.id)}">แก้ไข</button>
+                    <button class="post-delete-button" type="button" data-delete-own-post="${esc(post.id)}">ลบ</button>
+                  </div>`
+                : ""
+            }
           </div>
+          ${
+            ownsPost
+              ? `<form class="post-edit-form" data-edit-post-form="${esc(post.id)}" hidden>
+                  <textarea maxlength="800" rows="3" aria-label="แก้ไขข้อความโพสต์" required>${esc(post.message)}</textarea>
+                  <div class="post-edit-actions">
+                    <button class="reply-submit" type="submit">บันทึก</button>
+                    <button class="post-edit-cancel" type="button" data-cancel-edit-post="${esc(post.id)}">ยกเลิก</button>
+                  </div>
+                </form>`
+              : ""
+          }
           ${
             replies.length
               ? `<div class="replies">
@@ -662,19 +686,108 @@ async function handlePostSubmit(event) {
   showToast("โพสต์ข้อความแล้ว");
 }
 
-function handleCommunityClick(event) {
-  const toggle = event.target.closest("[data-reply-toggle]");
-  if (!toggle) return;
-  if (!currentUser()) {
-    openAuth("signin");
-    showToast("เข้าสู่ระบบก่อนตอบกลับข้อความ");
+async function handleCommunityClick(event) {
+  const replyToggle = event.target.closest("[data-reply-toggle]");
+  const editToggle = event.target.closest("[data-edit-post]");
+  const editCancel = event.target.closest("[data-cancel-edit-post]");
+  const deleteButton = event.target.closest("[data-delete-own-post]");
+  const user = currentUser();
+
+  if (replyToggle) {
+    if (!user) {
+      openAuth("signin");
+      showToast("เข้าสู่ระบบก่อนตอบกลับข้อความ");
+      return;
+    }
+    const form = communityPostsNode.querySelector(`[data-reply-form="${CSS.escape(replyToggle.dataset.replyToggle)}"]`);
+    if (!form) return;
+    form.hidden = !form.hidden;
+    if (!form.hidden) form.querySelector("textarea")?.focus();
     return;
   }
 
-  const form = communityPostsNode.querySelector(`[data-reply-form="${CSS.escape(toggle.dataset.replyToggle)}"]`);
-  if (!form) return;
-  form.hidden = !form.hidden;
-  if (!form.hidden) form.querySelector("textarea")?.focus();
+  if (editToggle || editCancel) {
+    const postId = editToggle?.dataset.editPost || editCancel?.dataset.cancelEditPost;
+    const post = communityMessages.find((entry) => String(entry.id) === String(postId));
+    if (!ownsCommunityPost(post, user)) {
+      showToast("เฉพาะเจ้าของโพสต์เท่านั้นที่แก้ไขได้");
+      return;
+    }
+    const form = communityPostsNode.querySelector(`[data-edit-post-form="${CSS.escape(String(postId))}"]`);
+    if (!form) return;
+    form.hidden = editCancel ? true : !form.hidden;
+    if (!form.hidden) form.querySelector("textarea")?.focus();
+    return;
+  }
+
+  if (deleteButton) {
+    const post = communityMessages.find((entry) => String(entry.id) === String(deleteButton.dataset.deleteOwnPost));
+    if (!ownsCommunityPost(post, user)) {
+      showToast("เฉพาะเจ้าของโพสต์เท่านั้นที่ลบได้");
+      return;
+    }
+    if (!window.confirm("ลบโพสต์นี้ใช่ไหม? การลบไม่สามารถย้อนกลับได้")) return;
+    if (!db) {
+      showToast("ยังไม่ได้เชื่อมต่อ Supabase");
+      return;
+    }
+
+    deleteButton.disabled = true;
+    const { data, error } = await db
+      .from(COMMUNITY_POSTS_TABLE)
+      .delete()
+      .eq("id", post.id)
+      .eq("user_id", user.id)
+      .select("id");
+
+    if (error || !data?.length) {
+      deleteButton.disabled = false;
+      showToast(error ? `ลบโพสต์ไม่สำเร็จ: ${error.message}` : "ไม่มีสิทธิ์ลบโพสต์นี้", 6200);
+      return;
+    }
+
+    await loadCommunityMessages();
+    showToast("ลบโพสต์แล้ว");
+  }
+}
+
+async function handleEditPostSubmit(event) {
+  const form = event.target.closest("[data-edit-post-form]");
+  if (!form) return false;
+  event.preventDefault();
+
+  const user = currentUser();
+  const post = communityMessages.find((entry) => String(entry.id) === String(form.dataset.editPostForm));
+  const message = form.querySelector("textarea")?.value.trim();
+  if (!ownsCommunityPost(post, user)) {
+    showToast("เฉพาะเจ้าของโพสต์เท่านั้นที่แก้ไขได้");
+    return true;
+  }
+  if (!message || !db) return true;
+
+  const submitButton = form.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  const { data, error } = await db
+    .from(COMMUNITY_POSTS_TABLE)
+    .update({ message: message.slice(0, 800) })
+    .eq("id", post.id)
+    .eq("user_id", user.id)
+    .select("id");
+  submitButton.disabled = false;
+
+  if (error || !data?.length) {
+    showToast(error ? `แก้ไขโพสต์ไม่สำเร็จ: ${error.message}` : "ไม่มีสิทธิ์แก้ไขโพสต์นี้", 6200);
+    return true;
+  }
+
+  await loadCommunityMessages();
+  showToast("บันทึกโพสต์แล้ว");
+  return true;
+}
+
+async function handleCommunitySubmit(event) {
+  if (await handleEditPostSubmit(event)) return;
+  await handleReplySubmit(event);
 }
 
 async function handleReplySubmit(event) {
@@ -793,6 +906,12 @@ async function loadAssetComments(itemId) {
 function assetShareUrl(item) {
   const url = new URL("./list.html", window.location.href);
   url.hash = `asset=${encodeURIComponent(item.id)}`;
+  return url.href;
+}
+
+function assetPlainShareUrl(item) {
+  const url = new URL("./share.html", window.location.href);
+  url.searchParams.set("asset", String(item.id));
   return url.href;
 }
 
@@ -945,7 +1064,7 @@ function refreshOpenAssetModal() {
 }
 
 async function shareAsset(item) {
-  const url = assetShareUrl(item);
+  const url = assetPlainShareUrl(item);
   let copied = false;
   try {
     await navigator.clipboard.writeText(url);
@@ -2084,7 +2203,7 @@ searchInput.addEventListener("input", renderItems);
 postComposer?.addEventListener("submit", handlePostSubmit);
 communityLoginButton?.addEventListener("click", () => openAuth("signin"));
 communityPostsNode?.addEventListener("click", handleCommunityClick);
-communityPostsNode?.addEventListener("submit", handleReplySubmit);
+communityPostsNode?.addEventListener("submit", handleCommunitySubmit);
 listNavLinks.forEach((link) => {
   link.addEventListener("click", (event) => {
     if (link.pathname && link.pathname !== window.location.pathname) return;
