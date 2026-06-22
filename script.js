@@ -1193,7 +1193,7 @@ function refreshOpenAssetModal() {
 
 async function shareAsset(item) {
   const url = assetPlainShareUrl(item);
-  const shareText = `${item.title || "ไฟล์จาก The Audio Vault"}\n${url}`;
+  const shareText = url;
   let copied = false;
   try {
     await navigator.clipboard.writeText(shareText);
@@ -1210,9 +1210,9 @@ async function shareAsset(item) {
     input.remove();
   }
   if (copied) {
-    showToast("คัดลอกชื่อไฟล์และลิงก์แล้ว");
+    showToast("คัดลอกลิงก์หน้ารายละเอียดไฟล์แล้ว");
   } else {
-    window.prompt("คัดลอกชื่อไฟล์และลิงก์นี้", shareText);
+    window.prompt("คัดลอกลิงก์หน้ารายละเอียดไฟล์นี้", shareText);
   }
 }
 
