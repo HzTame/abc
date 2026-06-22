@@ -796,13 +796,6 @@ function assetShareUrl(item) {
   return url.href;
 }
 
-function assetSharePageUrl(item) {
-  const url = new URL("./share.html", window.location.href);
-  url.searchParams.set("asset", String(item.id));
-  url.searchParams.set("title", item.title || "ไฟล์จาก The Audio Vault");
-  return url.href;
-}
-
 function formatCommentDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "เมื่อสักครู่";
@@ -880,7 +873,7 @@ function renderAssetModal(item) {
           <div class="asset-detail-actions">
             ${canPreview ? `<button class="preview-button" type="button" data-detail-preview="${esc(item.id)}">${active ? "■ หยุดเสียง" : "▶ ฟังตัวอย่าง"}</button>` : ""}
             <button class="download-button" type="button" data-detail-download="${esc(item.id)}">ดาวน์โหลด</button>
-            <a class="share-button" href="${esc(assetSharePageUrl(item))}" target="_blank" rel="noopener" data-share-asset="${esc(item.id)}">↗ แชร์ไฟล์</a>
+            <button class="share-button" type="button" data-share-asset="${esc(item.id)}">⧉ คัดลอกลิงก์</button>
           </div>
         </div>
       </div>
@@ -953,11 +946,25 @@ function refreshOpenAssetModal() {
 
 async function shareAsset(item) {
   const url = assetShareUrl(item);
+  let copied = false;
   try {
     await navigator.clipboard.writeText(url);
-    showToast("เปิดหน้าใหม่และคัดลอกลิงก์แล้ว");
+    copied = true;
   } catch {
-    showToast("เปิดหน้าแชร์ในแท็บใหม่แล้ว");
+    const input = document.createElement("textarea");
+    input.value = url;
+    input.setAttribute("readonly", "");
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.appendChild(input);
+    input.select();
+    copied = document.execCommand("copy");
+    input.remove();
+  }
+  if (copied) {
+    showToast("คัดลอกลิงก์แล้ว ส่งให้คนอื่นได้เลย");
+  } else {
+    window.prompt("คัดลอกลิงก์นี้", url);
   }
 }
 
@@ -1006,7 +1013,7 @@ function renderItems() {
               <span>${esc(item.format)}</span>
               <span${downloadCountAttr}>${esc(item.size || downloadCountLabel(item.downloads))}</span>
             </div>
-            <h3><a class="asset-title-button" href="${esc(assetShareUrl(item))}" target="_blank" rel="noopener">${esc(item.title)}</a></h3>
+            <h3><button class="asset-title-button" type="button" data-view-asset="${esc(item.id)}">${esc(item.title)}</button></h3>
             <p>${esc(item.description)}</p>
             <div class="sound-wave" aria-hidden="true">
               ${soundWaveBars}
@@ -1884,6 +1891,7 @@ itemsNode.addEventListener("click", (event) => {
   const muteButton = event.target.closest("[data-mute]");
   const previewButton = event.target.closest("[data-preview]");
   const downloadButton = event.target.closest("[data-download]");
+  const detailButton = event.target.closest("[data-view-asset]");
   const card = event.target.closest("[data-open-asset]");
 
   if (toggleButton) {
@@ -1901,6 +1909,12 @@ itemsNode.addEventListener("click", (event) => {
     return;
   }
 
+  if (detailButton) {
+    const item = items.find((entry) => String(entry.id) === detailButton.dataset.viewAsset);
+    if (item) openAssetDetails(item);
+    return;
+  }
+
   if (previewButton) {
     const item = items.find((entry) => entry.id === previewButton.dataset.preview);
     if (item) previewItem(item);
@@ -1915,7 +1929,7 @@ itemsNode.addEventListener("click", (event) => {
 
   if (card && !event.target.closest("button, input, label, a")) {
     const item = items.find((entry) => String(entry.id) === card.dataset.openAsset);
-    if (item) window.open(assetShareUrl(item), "_blank", "noopener");
+    if (item) openAssetDetails(item);
   }
 });
 
