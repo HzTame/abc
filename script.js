@@ -249,7 +249,6 @@ let openAssetId = "";
 const assetCommentsCache = new Map();
 const assetCommentCounts = new Map();
 let assetCommentsRemoteAvailable = true;
-let assetShareEndpointAvailable = false;
 const savedPreviewVolume = Number(localStorage.getItem("soundsharePreviewVolume"));
 let previewVolume = Number.isFinite(savedPreviewVolume) ? savedPreviewVolume : 0.9;
 
@@ -1017,28 +1016,8 @@ function assetStaticShareUrl(item) {
   return url.href;
 }
 
-function assetEdgeShareUrl(item) {
-  const url = new URL(`${SUPABASE_URL}/functions/v1/bright-endpoint`);
-  if (item?.id) url.searchParams.set("asset", String(item.id));
-  url.searchParams.set("v", "20260623");
-  return url.href;
-}
-
 function assetPlainShareUrl(item) {
-  return assetShareEndpointAvailable ? assetEdgeShareUrl(item) : assetStaticShareUrl(item);
-}
-
-async function probeAssetShareEndpoint() {
-  if (!supabaseConfigured) return;
-  try {
-    const response = await fetch(assetEdgeShareUrl(null), {
-      method: "HEAD",
-      cache: "no-store",
-    });
-    assetShareEndpointAvailable = response.ok;
-  } catch {
-    assetShareEndpointAvailable = false;
-  }
+  return assetStaticShareUrl(item);
 }
 
 function formatCommentDate(value) {
@@ -2523,7 +2502,6 @@ authModal.addEventListener("click", (event) => {
 
 setAuthMode("signin");
 renderCommunity();
-void probeAssetShareEndpoint();
 initAuth();
 loadCommunityMessages();
 loadItems();
