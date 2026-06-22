@@ -1035,8 +1035,7 @@ async function probeAssetShareEndpoint() {
       method: "HEAD",
       cache: "no-store",
     });
-    const contentType = response.headers.get("content-type") || "";
-    assetShareEndpointAvailable = response.ok && contentType.toLowerCase().includes("text/html");
+    assetShareEndpointAvailable = response.ok;
   } catch {
     assetShareEndpointAvailable = false;
   }
