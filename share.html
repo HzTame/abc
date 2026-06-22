@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex, nofollow, noimageindex, nosnippet" />
     <title>แชร์ไฟล์ - The Audio Vault</title>
-    <link rel="stylesheet" href="./styles.css?v=20260622-comm-owner-actions" />
+  <link rel="stylesheet" href="./styles.css?v=20260622-comment-count" />
   </head>
   <body class="page-share">
     <main class="share-page">
@@ -38,6 +38,7 @@
         const title = params.get("title") || "ไฟล์จาก The Audio Vault";
         const target = new URL("./list.html", window.location.href);
         target.hash = `asset=${encodeURIComponent(assetId)}`;
+        document.title = `${title} - The Audio Vault`;
 
         if (assetId) {
           window.setTimeout(() => window.location.replace(target.href), 0);

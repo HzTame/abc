@@ -247,6 +247,8 @@ let activePreviewIsAudio = false;
 let previewPaused = false;
 let openAssetId = "";
 const assetCommentsCache = new Map();
+const assetCommentCounts = new Map();
+let assetCommentsRemoteAvailable = true;
 const savedPreviewVolume = Number(localStorage.getItem("soundsharePreviewVolume"));
 let previewVolume = Number.isFinite(savedPreviewVolume) ? savedPreviewVolume : 0.9;
 
@@ -853,6 +855,10 @@ function downloadCountLabel(count) {
   return `${Number(count || 0).toLocaleString("th-TH")} โหลด`;
 }
 
+function commentCountLabel(count) {
+  return `${Number(count || 0).toLocaleString("th-TH")} คอมเมนต์`;
+}
+
 function readAssetComments() {
   try {
     const value = JSON.parse(localStorage.getItem(ASSET_COMMENTS_KEY) || "{}");
@@ -866,20 +872,80 @@ function assetComments(itemId) {
   const key = String(itemId);
   if (assetCommentsCache.has(key)) return assetCommentsCache.get(key);
   const comments = readAssetComments()[key];
-  return Array.isArray(comments) ? comments : [];
+  return Array.isArray(comments) ? comments.map((comment) => ({ ...comment, localOnly: true })) : [];
+}
+
+function assetCommentCount(itemId) {
+  const key = String(itemId);
+  if (assetCommentCounts.has(key)) return assetCommentCounts.get(key);
+  return assetComments(itemId).length;
+}
+
+function loadLocalAssetCommentCounts() {
+  assetCommentCounts.clear();
+  Object.entries(readAssetComments()).forEach(([itemId, comments]) => {
+    assetCommentCounts.set(String(itemId), Array.isArray(comments) ? comments.length : 0);
+  });
 }
 
 function saveAssetComment(itemId, comment) {
   const commentsByAsset = readAssetComments();
   const key = String(itemId);
-  commentsByAsset[key] = [...(Array.isArray(commentsByAsset[key]) ? commentsByAsset[key] : []), comment];
+  commentsByAsset[key] = [
+    ...(Array.isArray(commentsByAsset[key]) ? commentsByAsset[key] : []),
+    { ...comment, localOnly: true },
+  ];
+  localStorage.setItem(ASSET_COMMENTS_KEY, JSON.stringify(commentsByAsset));
+  assetCommentsCache.set(key, commentsByAsset[key].map((entry) => ({ ...entry, localOnly: true })));
+}
+
+function ownsAssetComment(comment, user = currentUser()) {
+  if (!user?.id || !comment) return false;
+  if (comment.userId) return String(user.id) === String(comment.userId);
+  if (!comment.localOnly) return false;
+
+  const author = String(comment.author || "").trim().toLowerCase();
+  const email = String(user.email || "").trim().toLowerCase();
+  const names = [user.name, email, email.split("@")[0]]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean);
+  return Boolean(author && names.includes(author));
+}
+
+function updateLocalAssetComment(itemId, commentId, text) {
+  const commentsByAsset = readAssetComments();
+  const key = String(itemId);
+  const comments = Array.isArray(commentsByAsset[key]) ? commentsByAsset[key] : [];
+  commentsByAsset[key] = comments.map((comment) =>
+    String(comment.id) === String(commentId)
+      ? { ...comment, localOnly: true, text: text.slice(0, 500), editedAt: new Date().toISOString() }
+      : { ...comment, localOnly: true }
+  );
   localStorage.setItem(ASSET_COMMENTS_KEY, JSON.stringify(commentsByAsset));
   assetCommentsCache.set(key, commentsByAsset[key]);
 }
 
+function deleteLocalAssetComment(itemId, commentId) {
+  const commentsByAsset = readAssetComments();
+  const key = String(itemId);
+  const comments = Array.isArray(commentsByAsset[key]) ? commentsByAsset[key] : [];
+  commentsByAsset[key] = comments.filter((comment) => String(comment.id) !== String(commentId));
+  localStorage.setItem(ASSET_COMMENTS_KEY, JSON.stringify(commentsByAsset));
+  assetCommentsCache.set(key, commentsByAsset[key].map((entry) => ({ ...entry, localOnly: true })));
+}
+
+function isMissingAssetCommentsTable(error) {
+  const message = `${error?.code || ""} ${error?.message || ""}`;
+  return /PGRST205|asset_comments.*schema cache|could not find the table.*asset_comments|relation.*asset_comments.*does not exist/i.test(message);
+}
+
 async function loadAssetComments(itemId) {
   const key = String(itemId);
-  if (!db) return assetComments(itemId);
+  if (!db || !assetCommentsRemoteAvailable) {
+    const localComments = assetComments(itemId);
+    assetCommentCounts.set(key, localComments.length);
+    return localComments;
+  }
 
   const { data, error } = await db
     .from(ASSET_COMMENTS_TABLE)
@@ -888,6 +954,12 @@ async function loadAssetComments(itemId) {
     .order("created_at", { ascending: true });
 
   if (error) {
+    if (isMissingAssetCommentsTable(error)) {
+      assetCommentsRemoteAvailable = false;
+      const localComments = assetComments(itemId);
+      assetCommentCounts.set(key, localComments.length);
+      return localComments;
+    }
     console.warn("Could not load asset comments:", error.message);
     return assetComments(itemId);
   }
@@ -900,7 +972,35 @@ async function loadAssetComments(itemId) {
     createdAt: comment.created_at,
   }));
   assetCommentsCache.set(key, comments);
+  assetCommentCounts.set(key, comments.length);
   return comments;
+}
+
+async function loadAssetCommentCounts() {
+  if (!db || !assetCommentsRemoteAvailable) {
+    loadLocalAssetCommentCounts();
+    renderItems();
+    return;
+  }
+
+  const { data, error } = await db.from(ASSET_COMMENTS_TABLE).select("asset_id");
+  if (error) {
+    if (isMissingAssetCommentsTable(error)) {
+      assetCommentsRemoteAvailable = false;
+      loadLocalAssetCommentCounts();
+      renderItems();
+    } else {
+      console.warn("Could not load asset comment counts:", error.message);
+    }
+    return;
+  }
+
+  assetCommentCounts.clear();
+  (data || []).forEach((comment) => {
+    const key = String(comment.asset_id);
+    assetCommentCounts.set(key, (assetCommentCounts.get(key) || 0) + 1);
+  });
+  renderItems();
 }
 
 function assetShareUrl(item) {
@@ -912,6 +1012,7 @@ function assetShareUrl(item) {
 function assetPlainShareUrl(item) {
   const url = new URL("./share.html", window.location.href);
   url.searchParams.set("asset", String(item.id));
+  url.searchParams.set("title", item.title || "ไฟล์จาก The Audio Vault");
   return url.href;
 }
 
@@ -1007,14 +1108,40 @@ function renderAssetModal(item) {
             ? comments
                 .slice()
                 .reverse()
-                .map(
-                  (comment) => `
+                .map((comment) => {
+                  const isOwner = ownsAssetComment(comment, user);
+                  return `
                     <article class="asset-comment">
-                      <div><strong>${esc(comment.author || "ผู้เยี่ยมชม")}</strong><time>${esc(formatCommentDate(comment.createdAt))}</time></div>
+                      <div class="asset-comment-head">
+                        <div class="asset-comment-identity">
+                          <strong>${esc(comment.author || "ผู้เยี่ยมชม")}</strong>
+                          <time>${esc(formatCommentDate(comment.createdAt))}${comment.editedAt ? " · แก้ไขแล้ว" : ""}</time>
+                        </div>
+                        ${
+                          isOwner
+                            ? `<div class="asset-comment-owner-actions">
+                                <button class="asset-comment-edit-button" type="button" data-edit-asset-comment="${esc(comment.id)}" data-comment-asset="${esc(item.id)}">แก้ไข</button>
+                                <button class="asset-comment-delete-button" type="button" data-delete-asset-comment="${esc(comment.id)}" data-comment-asset="${esc(item.id)}">ลบ</button>
+                              </div>`
+                            : ""
+                        }
+                      </div>
                       <p>${esc(comment.text)}</p>
+                      ${
+                        isOwner
+                          ? `<form class="asset-comment-edit-form" data-edit-asset-comment-form="${esc(comment.id)}" data-comment-asset="${esc(item.id)}" hidden>
+                              <label>แก้ไขความคิดเห็น</label>
+                              <textarea maxlength="500" rows="3" required>${esc(comment.text)}</textarea>
+                              <div>
+                                <button class="asset-comment-edit-save" type="submit">บันทึก</button>
+                                <button class="asset-comment-edit-cancel" type="button" data-cancel-asset-comment="${esc(comment.id)}">ยกเลิก</button>
+                              </div>
+                            </form>`
+                          : ""
+                      }
                     </article>
-                  `
-                )
+                  `;
+                })
                 .join("")
             : `<p class="asset-comment-empty">ยังไม่มีความคิดเห็น มาเป็นคนแรกที่พูดถึงไฟล์นี้กัน</p>`}
         </div>
@@ -1045,6 +1172,7 @@ function openAssetDetails(item, updateUrl = true) {
   window.setTimeout(() => modal.querySelector("[data-close-asset]")?.focus(), 0);
   void loadAssetComments(item.id).then(() => {
     if (openAssetId === String(item.id)) renderAssetModal(item);
+    renderItems();
   });
 }
 
@@ -1065,13 +1193,14 @@ function refreshOpenAssetModal() {
 
 async function shareAsset(item) {
   const url = assetPlainShareUrl(item);
+  const shareText = `${item.title || "ไฟล์จาก The Audio Vault"}\n${url}`;
   let copied = false;
   try {
-    await navigator.clipboard.writeText(url);
+    await navigator.clipboard.writeText(shareText);
     copied = true;
   } catch {
     const input = document.createElement("textarea");
-    input.value = url;
+    input.value = shareText;
     input.setAttribute("readonly", "");
     input.style.position = "fixed";
     input.style.opacity = "0";
@@ -1081,9 +1210,9 @@ async function shareAsset(item) {
     input.remove();
   }
   if (copied) {
-    showToast("คัดลอกลิงก์แล้ว ส่งให้คนอื่นได้เลย");
+    showToast("คัดลอกชื่อไฟล์และลิงก์แล้ว");
   } else {
-    window.prompt("คัดลอกลิงก์นี้", url);
+    window.prompt("คัดลอกชื่อไฟล์และลิงก์นี้", shareText);
   }
 }
 
@@ -1164,6 +1293,7 @@ function renderItems() {
             </div>
             <div class="asset-foot">
               <span>โดย ${esc(item.creator)}</span>
+              <span class="asset-card-comment-count" data-asset-comment-count="${esc(item.id)}" title="จำนวนความคิดเห็น">💬 ${commentCountLabel(assetCommentCount(item.id))}</span>
               <span data-download-count="${esc(item.id)}">${downloadCountLabel(item.downloads)}</span>
             </div>
             <div class="asset-actions${canPreview ? "" : " download-only"}">
@@ -1188,6 +1318,7 @@ async function loadItems() {
   if (!db) {
     items = demoItems.map(normalizeItem);
     renderItems();
+    void loadAssetCommentCounts();
     openAssetFromHash();
     return;
   }
@@ -1205,6 +1336,7 @@ async function loadItems() {
     items = stableSortItems((data || []).map(normalizeItem));
   }
   renderItems();
+  void loadAssetCommentCounts();
   openAssetFromHash();
 }
 
@@ -1676,6 +1808,7 @@ function updateAccountUI() {
   updateResendConfirmationButton();
   renderItems();
   renderCommunity();
+  refreshOpenAssetModal();
 }
 
 function updateAuthPanelState() {
@@ -2052,7 +2185,7 @@ itemsNode.addEventListener("click", (event) => {
   }
 });
 
-ensureAssetModal().addEventListener("click", (event) => {
+ensureAssetModal().addEventListener("click", async (event) => {
   const modal = event.currentTarget;
   const closeButton = event.target.closest("[data-close-asset]");
   const toggleButton = event.target.closest("[data-toggle-play]");
@@ -2062,6 +2195,9 @@ ensureAssetModal().addEventListener("click", (event) => {
   const previewButton = event.target.closest("[data-detail-preview]");
   const downloadButton = event.target.closest("[data-detail-download]");
   const commentLoginButton = event.target.closest("[data-comment-login]");
+  const editCommentButton = event.target.closest("[data-edit-asset-comment]");
+  const cancelEditButton = event.target.closest("[data-cancel-asset-comment]");
+  const deleteCommentButton = event.target.closest("[data-delete-asset-comment]");
 
   if (event.target === modal || closeButton) {
     closeAssetDetails();
@@ -2087,6 +2223,70 @@ ensureAssetModal().addEventListener("click", (event) => {
     closeAssetDetails();
     openAuth("signin");
     showToast("เข้าสู่ระบบก่อนแสดงความคิดเห็น");
+    return;
+  }
+
+  if (editCommentButton) {
+    const form = editCommentButton.closest(".asset-comment")?.querySelector("[data-edit-asset-comment-form]");
+    if (!form) return;
+    form.hidden = false;
+    editCommentButton.closest(".asset-comment")?.querySelector("p")?.setAttribute("hidden", "");
+    form.querySelector("textarea")?.focus();
+    return;
+  }
+
+  if (cancelEditButton) {
+    const article = cancelEditButton.closest(".asset-comment");
+    const form = article?.querySelector("[data-edit-asset-comment-form]");
+    if (form) form.hidden = true;
+    article?.querySelector("p")?.removeAttribute("hidden");
+    return;
+  }
+
+  if (deleteCommentButton) {
+    const user = currentUser();
+    const itemId = deleteCommentButton.dataset.commentAsset;
+    const commentId = deleteCommentButton.dataset.deleteAssetComment;
+    const item = items.find((entry) => String(entry.id) === String(itemId));
+    const comment = assetComments(itemId).find((entry) => String(entry.id) === String(commentId));
+    if (!user || !comment || !ownsAssetComment(comment, user)) {
+      showToast("ลบได้เฉพาะความคิดเห็นของคุณเท่านั้น");
+      return;
+    }
+    if (!window.confirm("ลบความคิดเห็นนี้ใช่ไหม?")) return;
+
+    deleteCommentButton.disabled = true;
+    let deletedLocally = !db || !assetCommentsRemoteAvailable;
+    if (!deletedLocally) {
+      const { data, error } = await db
+        .from(ASSET_COMMENTS_TABLE)
+        .delete()
+        .eq("id", commentId)
+        .eq("user_id", user.id)
+        .select("id");
+      if (error) {
+        if (isMissingAssetCommentsTable(error)) {
+          assetCommentsRemoteAvailable = false;
+          deletedLocally = true;
+        } else {
+          deleteCommentButton.disabled = false;
+          console.error("Could not delete asset comment:", error);
+          showToast(`ลบความคิดเห็นไม่สำเร็จ: ${error.message}`, 6200);
+          return;
+        }
+      } else if (!data?.length) {
+        deleteCommentButton.disabled = false;
+        showToast("ไม่พบความคิดเห็น หรือคุณไม่มีสิทธิ์ลบ");
+        return;
+      } else {
+        await loadAssetComments(itemId);
+      }
+    }
+    if (deletedLocally) deleteLocalAssetComment(itemId, commentId);
+    if (item) renderAssetModal(item);
+    assetCommentCounts.set(String(itemId), assetComments(itemId).length);
+    renderItems();
+    showToast("ลบความคิดเห็นแล้ว");
     return;
   }
 
@@ -2121,6 +2321,55 @@ ensureAssetModal().addEventListener("input", (event) => {
 });
 
 ensureAssetModal().addEventListener("submit", async (event) => {
+  const editForm = event.target.closest("[data-edit-asset-comment-form]");
+  if (editForm) {
+    event.preventDefault();
+    const user = currentUser();
+    const itemId = editForm.dataset.commentAsset;
+    const commentId = editForm.dataset.editAssetCommentForm;
+    const comment = assetComments(itemId).find((entry) => String(entry.id) === String(commentId));
+    const text = editForm.querySelector("textarea")?.value.trim();
+    if (!user || !comment || !ownsAssetComment(comment, user)) {
+      showToast("แก้ไขได้เฉพาะความคิดเห็นของคุณเท่านั้น");
+      return;
+    }
+    if (!text) return;
+
+    const submitButton = editForm.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    let updatedLocally = !db || !assetCommentsRemoteAvailable;
+    if (!updatedLocally) {
+      const { data, error } = await db
+        .from(ASSET_COMMENTS_TABLE)
+        .update({ message: text.slice(0, 500) })
+        .eq("id", commentId)
+        .eq("user_id", user.id)
+        .select("id");
+      if (error) {
+        if (isMissingAssetCommentsTable(error)) {
+          assetCommentsRemoteAvailable = false;
+          updatedLocally = true;
+        } else {
+          submitButton.disabled = false;
+          console.error("Could not update asset comment:", error);
+          showToast(`แก้ไขความคิดเห็นไม่สำเร็จ: ${error.message}`, 6200);
+          return;
+        }
+      } else if (!data?.length) {
+        submitButton.disabled = false;
+        showToast("ไม่พบความคิดเห็น หรือคุณไม่มีสิทธิ์แก้ไข");
+        return;
+      } else {
+        await loadAssetComments(itemId);
+      }
+    }
+    if (updatedLocally) updateLocalAssetComment(itemId, commentId, text);
+    const item = items.find((entry) => String(entry.id) === String(itemId));
+    if (item) renderAssetModal(item);
+    showToast("แก้ไขความคิดเห็นแล้ว");
+    return;
+  }
+
   const form = event.target.closest("[data-comment-form]");
   if (!form) return;
   event.preventDefault();
@@ -2137,31 +2386,50 @@ ensureAssetModal().addEventListener("submit", async (event) => {
 
   const submitButton = form.querySelector('button[type="submit"]');
   submitButton.disabled = true;
-  if (db) {
+  let savedLocally = false;
+  if (db && assetCommentsRemoteAvailable) {
     const { error } = await db.from(ASSET_COMMENTS_TABLE).insert({
       asset_id: String(form.dataset.commentForm),
       user_id: user.id,
       author: user.name || user.email || "สมาชิก",
       message: text.slice(0, 500),
     });
-    submitButton.disabled = false;
     if (error) {
-      console.error("Could not create asset comment:", error);
-      showToast(`ส่งความคิดเห็นไม่สำเร็จ: ${error.message}`, 6200);
-      return;
+      if (isMissingAssetCommentsTable(error)) {
+        assetCommentsRemoteAvailable = false;
+        saveAssetComment(form.dataset.commentForm, {
+          id: makeId(),
+          userId: user.id,
+          text,
+          author: user.name || user.email || "สมาชิก",
+          createdAt: new Date().toISOString(),
+        });
+        savedLocally = true;
+      } else {
+        submitButton.disabled = false;
+        console.error("Could not create asset comment:", error);
+        showToast(`ส่งความคิดเห็นไม่สำเร็จ: ${error.message}`, 6200);
+        return;
+      }
+    } else {
+      await loadAssetComments(form.dataset.commentForm);
     }
-    await loadAssetComments(form.dataset.commentForm);
   } else {
     saveAssetComment(form.dataset.commentForm, {
       id: makeId(),
+      userId: user.id,
       text,
       author: user.name || user.email || "สมาชิก",
       createdAt: new Date().toISOString(),
     });
+    savedLocally = true;
   }
+  submitButton.disabled = false;
   const item = items.find((entry) => String(entry.id) === form.dataset.commentForm);
   if (item) renderAssetModal(item);
-  showToast("ส่งความคิดเห็นแล้ว");
+  assetCommentCounts.set(String(form.dataset.commentForm), assetComments(form.dataset.commentForm).length);
+  renderItems();
+  showToast(savedLocally ? "บันทึกความคิดเห็นในเครื่องชั่วคราวแล้ว" : "ส่งความคิดเห็นแล้ว");
 });
 
 document.addEventListener("keydown", (event) => {
