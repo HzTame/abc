@@ -1028,7 +1028,7 @@ function renderItems() {
                     </div>
                     <input class="seek-slider" type="range" min="0" max="1000" step="1" value="0" data-seek="${esc(item.id)}" aria-label="เลื่อนตำแหน่งเสียง" />
                     <div class="player-controls">
-                      <button class="player-icon" type="button" data-toggle-play="${esc(item.id)}" aria-label="${previewPaused ? "เล่นต่อ" : "พัก"}" title="${previewPaused ? "เล่นต่อ" : "พัก"}">${previewPaused ? "▶" : "⏸"}</button>
+                      <button class="player-icon player-primary" type="button" data-toggle-play="${esc(item.id)}" aria-label="${previewPaused ? "เล่นต่อ" : "พัก"}" title="${previewPaused ? "เล่นต่อ" : "พัก"}">${previewPaused ? "▶" : "❚❚"}</button>
                       <button class="player-icon" type="button" data-restart="${esc(item.id)}" aria-label="เริ่มใหม่" title="เริ่มใหม่">↺</button>
                       <button class="player-icon" type="button" data-mute="${esc(item.id)}" aria-label="${previewAudio?.muted ? "เปิดเสียง" : "ปิดเสียง"}" title="${previewAudio?.muted ? "เปิดเสียง" : "ปิดเสียง"}">${previewAudio?.muted ? "🔇" : "🔊"}</button>
                       <label class="volume-control">
