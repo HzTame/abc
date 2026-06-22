@@ -389,8 +389,18 @@ function syncPlayerUi() {
     if (currentNode) currentNode.textContent = formatTime(current);
     if (durationNode) durationNode.textContent = formatTime(duration);
     if (seekNode && document.activeElement !== seekNode) seekNode.value = progress;
-    if (toggleNode) toggleNode.textContent = previewAudio.paused ? "เล่นต่อ" : "พัก";
-    if (muteNode) muteNode.textContent = previewAudio.muted || previewAudio.volume === 0 ? "เปิดเสียง" : "ปิดเสียง";
+    if (toggleNode) {
+      const paused = previewAudio.paused;
+      toggleNode.textContent = paused ? "▶" : "❚❚";
+      toggleNode.setAttribute("aria-label", paused ? "เล่นต่อ" : "พัก");
+      toggleNode.title = paused ? "เล่นต่อ" : "พัก";
+    }
+    if (muteNode) {
+      const muted = previewAudio.muted || previewAudio.volume === 0;
+      muteNode.textContent = muted ? "🔇" : "🔊";
+      muteNode.setAttribute("aria-label", muted ? "เปิดเสียง" : "ปิดเสียง");
+      muteNode.title = muted ? "เปิดเสียง" : "ปิดเสียง";
+    }
     if (volumeNode && document.activeElement !== volumeNode) {
       volumeNode.value = Math.round((previewAudio.muted ? 0 : previewAudio.volume) * 100);
     }
@@ -786,6 +796,13 @@ function assetShareUrl(item) {
   return url.href;
 }
 
+function assetSharePageUrl(item) {
+  const url = new URL("./share.html", window.location.href);
+  url.searchParams.set("asset", String(item.id));
+  url.searchParams.set("title", item.title || "ไฟล์จาก The Audio Vault");
+  return url.href;
+}
+
 function formatCommentDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "เมื่อสักครู่";
@@ -849,11 +866,11 @@ function renderAssetModal(item) {
                   </div>
                   <input class="seek-slider" type="range" min="0" max="1000" step="1" value="0" data-seek="${esc(item.id)}" aria-label="เลื่อนตำแหน่งเสียง" />
                   <div class="player-controls">
-                    <button class="player-icon" type="button" data-toggle-play="${esc(item.id)}" aria-label="${previewPaused ? "เล่นต่อ" : "พัก"}">${previewPaused ? "เล่นต่อ" : "พัก"}</button>
-                    <button class="player-icon" type="button" data-restart="${esc(item.id)}" aria-label="เริ่มใหม่">เริ่มใหม่</button>
-                    <button class="player-icon" type="button" data-mute="${esc(item.id)}" aria-label="${previewAudio?.muted ? "เปิดเสียง" : "ปิดเสียง"}">${previewAudio?.muted ? "เปิดเสียง" : "ปิดเสียง"}</button>
+                    <button class="player-icon player-primary" type="button" data-toggle-play="${esc(item.id)}" aria-label="${previewPaused ? "เล่นต่อ" : "พัก"}" title="${previewPaused ? "เล่นต่อ" : "พัก"}">${previewPaused ? "▶" : "❚❚"}</button>
+                    <button class="player-icon" type="button" data-restart="${esc(item.id)}" aria-label="เริ่มใหม่" title="เริ่มใหม่">↺</button>
+                    <button class="player-icon" type="button" data-mute="${esc(item.id)}" aria-label="${previewAudio?.muted ? "เปิดเสียง" : "ปิดเสียง"}" title="${previewAudio?.muted ? "เปิดเสียง" : "ปิดเสียง"}">${previewAudio?.muted ? "🔇" : "🔊"}</button>
                     <label class="volume-control">
-                      <span>ระดับเสียง</span>
+                      <span aria-hidden="true">🎚</span>
                       <input type="range" min="0" max="100" step="1" value="${Math.round((previewAudio?.muted ? 0 : previewVolume) * 100)}" data-volume="${esc(item.id)}" aria-label="ปรับเสียง" />
                     </label>
                   </div>
@@ -863,7 +880,7 @@ function renderAssetModal(item) {
           <div class="asset-detail-actions">
             ${canPreview ? `<button class="preview-button" type="button" data-detail-preview="${esc(item.id)}">${active ? "■ หยุดเสียง" : "▶ ฟังตัวอย่าง"}</button>` : ""}
             <button class="download-button" type="button" data-detail-download="${esc(item.id)}">ดาวน์โหลด</button>
-            <a class="share-button" href="${esc(assetShareUrl(item))}" target="_blank" rel="noopener" data-share-asset="${esc(item.id)}">แชร์ไฟล์</a>
+            <a class="share-button" href="${esc(assetSharePageUrl(item))}" target="_blank" rel="noopener" data-share-asset="${esc(item.id)}">↗ แชร์ไฟล์</a>
           </div>
         </div>
       </div>

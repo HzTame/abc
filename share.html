@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>แชร์ไฟล์ - The Audio Vault</title>
+    <link rel="stylesheet" href="./styles.css?v=20260622-modern-player-share" />
+  </head>
+  <body class="page-share">
+    <main class="share-page">
+      <section class="share-card" aria-labelledby="shareTitle">
+        <a class="brand share-brand" href="./index.html" aria-label="The Audio Vault">
+          <span class="brand-mark">A</span>
+          <span>The Audio Vault</span>
+        </a>
+        <p class="section-kicker">แชร์ไฟล์</p>
+        <h1 id="shareTitle">คัดลอกลิงก์ส่งให้เพื่อนได้เลย</h1>
+        <p class="share-file-name" id="shareFileName"></p>
+
+        <label class="share-link-field">
+          <span>ลิงก์หน้ารายละเอียด</span>
+          <input id="shareLink" type="text" readonly />
+        </label>
+
+        <div class="share-page-actions">
+          <button class="primary-action" id="copyShareLink" type="button">คัดลอกลิงก์</button>
+          <a class="secondary-action" id="openAssetLink" href="./list.html">เปิดหน้ารายละเอียด</a>
+        </div>
+        <p class="share-copy-status" id="shareCopyStatus" role="status" aria-live="polite"></p>
+      </section>
+    </main>
+
+    <script>
+      (() => {
+        const params = new URLSearchParams(window.location.search);
+        const assetId = params.get("asset") || "";
+        const title = params.get("title") || "ไฟล์จาก The Audio Vault";
+        const target = new URL("./list.html", window.location.href);
+        target.hash = `asset=${encodeURIComponent(assetId)}`;
+
+        const input = document.querySelector("#shareLink");
+        const status = document.querySelector("#shareCopyStatus");
+        const openLink = document.querySelector("#openAssetLink");
+        document.querySelector("#shareFileName").textContent = title;
+        input.value = target.href;
+        openLink.href = target.href;
+
+        document.querySelector("#copyShareLink").addEventListener("click", async () => {
+          let copied = false;
+          try {
+            await navigator.clipboard.writeText(target.href);
+            copied = true;
+          } catch {
+            input.focus();
+            input.select();
+            copied = document.execCommand("copy");
+          }
+          status.textContent = copied ? "คัดลอกลิงก์แล้ว ส่งให้คนอื่นได้เลย" : "เลือกข้อความในช่องแล้วกดคัดลอกได้เลย";
+        });
+
+        input.addEventListener("click", () => input.select());
+      })();
+    </script>
+  </body>
+</html>
