@@ -249,6 +249,7 @@ let openAssetId = "";
 const assetCommentsCache = new Map();
 const assetCommentCounts = new Map();
 let assetCommentsRemoteAvailable = true;
+let assetShareEndpointAvailable = false;
 const savedPreviewVolume = Number(localStorage.getItem("soundsharePreviewVolume"));
 let previewVolume = Number.isFinite(savedPreviewVolume) ? savedPreviewVolume : 0.9;
 
@@ -1009,11 +1010,36 @@ function assetShareUrl(item) {
   return url.href;
 }
 
-function assetPlainShareUrl(item) {
+function assetStaticShareUrl(item) {
   const url = new URL("./share.html", window.location.href);
   url.searchParams.set("asset", String(item.id));
   url.searchParams.set("title", item.title || "ไฟล์จาก The Audio Vault");
   return url.href;
+}
+
+function assetEdgeShareUrl(item) {
+  const url = new URL(`${SUPABASE_URL}/functions/v1/bright-endpoint`);
+  if (item?.id) url.searchParams.set("asset", String(item.id));
+  url.searchParams.set("v", "20260623");
+  return url.href;
+}
+
+function assetPlainShareUrl(item) {
+  return assetShareEndpointAvailable ? assetEdgeShareUrl(item) : assetStaticShareUrl(item);
+}
+
+async function probeAssetShareEndpoint() {
+  if (!supabaseConfigured) return;
+  try {
+    const response = await fetch(assetEdgeShareUrl(null), {
+      method: "HEAD",
+      cache: "no-store",
+    });
+    const contentType = response.headers.get("content-type") || "";
+    assetShareEndpointAvailable = response.ok && contentType.toLowerCase().includes("text/html");
+  } catch {
+    assetShareEndpointAvailable = false;
+  }
 }
 
 function formatCommentDate(value) {
@@ -2498,6 +2524,7 @@ authModal.addEventListener("click", (event) => {
 
 setAuthMode("signin");
 renderCommunity();
+void probeAssetShareEndpoint();
 initAuth();
 loadCommunityMessages();
 loadItems();
