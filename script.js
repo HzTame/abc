@@ -518,30 +518,35 @@ async function loadCommunityMessages() {
     return false;
   }
 
-  const [postsResult, repliesResult] = await Promise.all([
-    db
-      .from(COMMUNITY_POSTS_TABLE)
-      .select("id,user_id,author,message,created_at")
-      .order("created_at", { ascending: false })
-      .limit(100),
-    db
-      .from(COMMUNITY_REPLIES_TABLE)
-      .select("id,post_id,user_id,author,message,created_at")
-      .order("created_at", { ascending: true }),
-  ]);
+  const postsResult = await db
+    .from(COMMUNITY_POSTS_TABLE)
+    .select("id,user_id,author,message,created_at")
+    .order("created_at", { ascending: false })
+    .limit(100);
 
-  const error = postsResult.error || repliesResult.error;
-  if (error) {
-    console.error("Could not load community posts:", error);
+  if (postsResult.error) {
+    console.error("Could not load community posts:", postsResult.error);
     communityMessages = [];
     renderCommunity();
-    showToast("โหลดโพสต์ไม่สำเร็จ กรุณาตรวจตารางและ RLS ใน Supabase", 6200);
+    showToast(`โหลดโพสต์ไม่สำเร็จ: ${postsResult.error.message}`, 7200);
     return false;
   }
 
+  // โหลดคำตอบแยกจากโพสต์ เพื่อไม่ให้โพสต์ทั้งหมดหายเมื่อ policy
+  // หรือตาราง community_replies มีปัญหา
+  const repliesResult = await db
+    .from(COMMUNITY_REPLIES_TABLE)
+    .select("id,post_id,user_id,author,message,created_at")
+    .order("created_at", { ascending: true });
+
+  if (repliesResult.error) {
+    console.warn("Could not load community replies:", repliesResult.error);
+  }
+
   const repliesByPost = new Map();
-  (repliesResult.data || []).forEach((reply) => {
-    const replies = repliesByPost.get(reply.post_id) || [];
+  (repliesResult.error ? [] : repliesResult.data || []).forEach((reply) => {
+    const postKey = String(reply.post_id);
+    const replies = repliesByPost.get(postKey) || [];
     replies.push({
       id: reply.id,
       userId: reply.user_id,
@@ -549,7 +554,7 @@ async function loadCommunityMessages() {
       message: reply.message,
       createdAt: reply.created_at,
     });
-    repliesByPost.set(reply.post_id, replies);
+    repliesByPost.set(postKey, replies);
   });
 
   communityMessages = (postsResult.data || []).map((post) => ({
@@ -559,9 +564,13 @@ async function loadCommunityMessages() {
     message: post.message,
     createdAt: post.created_at,
     views: 0,
-    replies: repliesByPost.get(post.id) || [],
+    replies: repliesByPost.get(String(post.id)) || [],
   }));
+
   renderCommunity();
+  if (repliesResult.error) {
+    showToast("โพสต์กลับมาแล้ว แต่คำตอบบางส่วนยังโหลดไม่ได้ ให้รันไฟล์ SQL แก้ RLS", 7200);
+  }
   void trackCommunityViews();
   return true;
 }

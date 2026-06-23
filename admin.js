@@ -267,30 +267,38 @@ async function loadCommunityPosts() {
   if (!renderGate() || !communityPostList) return;
   communityPostList.innerHTML = `<div class="empty-state">กำลังโหลดโพสต์...</div>`;
 
-  const [postsResult, repliesResult] = await Promise.all([
-    db
-      .from(COMMUNITY_POSTS_TABLE)
-      .select("id,user_id,author,message,created_at,view_count")
-      .order("created_at", { ascending: false })
-      .limit(200),
-    db
-      .from(COMMUNITY_REPLIES_TABLE)
-      .select("id,post_id,user_id,author,message,created_at")
-      .order("created_at", { ascending: true }),
-  ]);
+  let postsResult = await db
+    .from(COMMUNITY_POSTS_TABLE)
+    .select("id,user_id,author,message,created_at,view_count")
+    .order("created_at", { ascending: false })
+    .limit(200);
 
-  const error = postsResult.error || repliesResult.error;
-  if (error) {
+  // รองรับฐานข้อมูลเก่าที่ยังไม่มีคอลัมน์ view_count
+  if (postsResult.error && /view_count/i.test(postsResult.error.message || "")) {
+    postsResult = await db
+      .from(COMMUNITY_POSTS_TABLE)
+      .select("id,user_id,author,message,created_at")
+      .order("created_at", { ascending: false })
+      .limit(200);
+  }
+
+  if (postsResult.error) {
     communityPosts = [];
-    communityPostList.innerHTML = `<div class="empty-state">โหลดโพสต์ไม่สำเร็จ: ${escapeHtml(error.message)}</div>`;
+    communityPostList.innerHTML = `<div class="empty-state">โหลดโพสต์ไม่สำเร็จ: ${escapeHtml(postsResult.error.message)}</div>`;
     return;
   }
 
+  const repliesResult = await db
+    .from(COMMUNITY_REPLIES_TABLE)
+    .select("id,post_id,user_id,author,message,created_at")
+    .order("created_at", { ascending: true });
+
   const repliesByPost = new Map();
-  (repliesResult.data || []).forEach((reply) => {
-    const replies = repliesByPost.get(reply.post_id) || [];
+  (repliesResult.error ? [] : repliesResult.data || []).forEach((reply) => {
+    const postKey = String(reply.post_id);
+    const replies = repliesByPost.get(postKey) || [];
     replies.push(reply);
-    repliesByPost.set(reply.post_id, replies);
+    repliesByPost.set(postKey, replies);
   });
 
   communityPosts = (postsResult.data || []).map((post) => ({
@@ -300,9 +308,13 @@ async function loadCommunityPosts() {
     message: post.message,
     createdAt: post.created_at,
     views: Number(post.view_count || 0),
-    replies: repliesByPost.get(post.id) || [],
+    replies: repliesByPost.get(String(post.id)) || [],
   }));
   renderCommunityPosts();
+
+  if (repliesResult.error) {
+    showToast(`โหลดคำตอบไม่สำเร็จ: ${repliesResult.error.message}`, 6200);
+  }
 }
 
 function renderCommunityPosts() {
