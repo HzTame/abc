@@ -6,7 +6,7 @@
     <title>The Audio Vault</title>
   <link rel="stylesheet" href="./styles.css?v=20260622-comment-count" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="./script.js?v=20260623-share-no-image" defer></script>
+  <script src="./script.js?v=20260623-verified-download" defer></script>
   </head>
   <body class="page-home">
     <header class="site-header">
@@ -109,11 +109,11 @@
           </label>
           <label>
             อีเมล
-            <input id="email" type="email" placeholder="you@example.com" required />
+            <input id="email" type="email" placeholder="nameyou@gmail.com" required />
           </label>
           <p class="auth-help signup-only" hidden>
             ชื่อโปรไฟล์ตั้งเป็นชื่ออะไรก็ได้ ไม่จำเป็นต้องใช้ชื่อจริง<br />
-            อีเมลใช้สมัครได้ตามต้องการ แต่ถ้าลืมหรือต้องการเปลี่ยนรหัสผ่าน ต้องใช้อีเมลที่มีอยู่จริงและรับข้อความได้
+            ใช้อีเมลที่มีอยู่จริง จึงจะเข้าสู่ระบบและดาวน์โหลดไฟล์ได้
           </p>
           <label id="passwordField">
             รหัสผ่าน
@@ -162,7 +162,7 @@
           <form class="account-form" id="emailForm">
             <label>
               แก้ไขอีเมล
-              <input id="newEmail" type="email" placeholder="you@example.com" />
+              <input id="newEmail" type="email" placeholder="nameyou@gmail.com" />
             </label>
             <button class="secondary-action account-action" type="submit">บันทึกอีเมล</button>
           </form>

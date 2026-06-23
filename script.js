@@ -1548,6 +1548,30 @@ function safeDownloadName(fileName) {
     .trim();
 }
 
+function hasVerifiedEmailSession() {
+  const user = session?.user;
+  return Boolean(user?.email && (user.email_confirmed_at || user.confirmed_at));
+}
+
+function requireVerifiedEmailForDownload() {
+  if (hasVerifiedEmailSession()) return true;
+
+  if (!db) {
+    showToast("ระบบสมาชิกยังไม่พร้อม จึงยังดาวน์โหลดไม่ได้ กรุณาลองใหม่ภายหลัง", 6200);
+    return false;
+  }
+
+  const pendingEmail = localStorage.getItem(PENDING_CONFIRMATION_EMAIL_KEY) || "";
+  openAuth(pendingEmail ? "signin" : "signup");
+  showToast(
+    pendingEmail
+      ? "กรุณาเปิดอีเมลเพื่อยืนยันบัญชี แล้วล็อกอินก่อนดาวน์โหลด"
+      : "สมัครบัญชีและยืนยันอีเมลก่อนดาวน์โหลด",
+    6200,
+  );
+  return false;
+}
+
 function saveBlob(blob, fileName) {
   const blobUrl = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -1584,6 +1608,8 @@ async function recordDownload(item) {
 }
 
 async function downloadItem(item) {
+  if (!requireVerifiedEmailForDownload()) return;
+
   const fileName = downloadFileName(item);
 
   try {
