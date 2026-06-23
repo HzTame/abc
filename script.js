@@ -242,6 +242,7 @@ let audioCtx;
 let previewAudio;
 let previewTimer;
 let playerTimer;
+let signupNetworkInfoPromise = null;
 let toastTimer;
 let activePreviewIsAudio = false;
 let previewPaused = false;
@@ -1885,10 +1886,112 @@ async function initAuth() {
   db.auth.onAuthStateChange((event, nextSession) => {
     session = nextSession;
     updateAccountUI();
+    if (communityPostsNode) void loadCommunityMessages();
     if (event === "PASSWORD_RECOVERY") {
       showPasswordRecoveryPanel();
     }
   });
+}
+
+function cleanSignupNetworkValue(value, maxLength = 128) {
+  const text = String(value || "").trim();
+  return text.length <= maxLength ? text : text.slice(0, maxLength);
+}
+
+function signupNetworkScore(info) {
+  return ["ip", "city", "region", "country", "isp"].reduce(
+    (score, key) => score + (info[key] ? 1 : 0),
+    0
+  );
+}
+
+async function fetchSignupNetworkService(service) {
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timer = controller ? window.setTimeout(() => controller.abort(), 3500) : null;
+
+  try {
+    const response = await fetch(service.url, {
+      cache: "no-store",
+      signal: controller?.signal,
+    });
+    if (!response.ok) return {};
+
+    const data = await response.json();
+    const info = service.read(data) || {};
+    return {
+      ip: cleanSignupNetworkValue(info.ip, 64),
+      city: cleanSignupNetworkValue(info.city),
+      region: cleanSignupNetworkValue(info.region),
+      country: cleanSignupNetworkValue(info.country),
+      isp: cleanSignupNetworkValue(info.isp, 160),
+    };
+  } catch (error) {
+    console.warn(`Could not detect signup network info from ${service.url}:`, error);
+    return {};
+  } finally {
+    if (timer) window.clearTimeout(timer);
+  }
+}
+
+async function getSignupNetworkInfo() {
+  if (signupNetworkInfoPromise) return signupNetworkInfoPromise;
+
+  signupNetworkInfoPromise = (async () => {
+    if (typeof fetch !== "function") return {};
+
+    const services = [
+      {
+        url: "https://ipapi.co/json/",
+        read: (data) => ({
+          ip: data?.ip,
+          city: data?.city,
+          region: data?.region,
+          country: data?.country_name,
+          isp: data?.org || data?.asn,
+        }),
+      },
+      {
+        url: "https://ipwho.is/",
+        read: (data) => ({
+          ip: data?.ip,
+          city: data?.city,
+          region: data?.region,
+          country: data?.country,
+          isp: data?.connection?.isp || data?.connection?.org,
+        }),
+      },
+      {
+        url: "https://ipinfo.io/json",
+        read: (data) => ({
+          ip: data?.ip,
+          city: data?.city,
+          region: data?.region,
+          country: data?.country,
+          isp: data?.org,
+        }),
+      },
+      {
+        url: "https://api.ipify.org?format=json",
+        read: (data) => ({
+          ip: data?.ip,
+        }),
+      },
+      {
+        url: "https://api64.ipify.org?format=json",
+        read: (data) => ({
+          ip: data?.ip,
+        }),
+      },
+    ];
+
+    const results = await Promise.allSettled(services.map(fetchSignupNetworkService));
+    return results
+      .map((result) => (result.status === "fulfilled" ? result.value : {}))
+      .filter((info) => signupNetworkScore(info) > 0)
+      .sort((a, b) => signupNetworkScore(b) - signupNetworkScore(a))[0] || {};
+  })();
+
+  return signupNetworkInfoPromise;
 }
 
 async function handleAuthSubmit(event) {
@@ -1940,12 +2043,20 @@ async function handleAuthSubmit(event) {
   const isSignup = authMode === "signup";
   authSubmit.disabled = true;
   try {
+    const signupNetworkInfo = isSignup ? await getSignupNetworkInfo() : {};
+    const signupMetadata = { display_name: displayName };
+    if (signupNetworkInfo.ip) signupMetadata.signup_ip = signupNetworkInfo.ip;
+    if (signupNetworkInfo.city) signupMetadata.signup_city = signupNetworkInfo.city;
+    if (signupNetworkInfo.region) signupMetadata.signup_region = signupNetworkInfo.region;
+    if (signupNetworkInfo.country) signupMetadata.signup_country = signupNetworkInfo.country;
+    if (signupNetworkInfo.isp) signupMetadata.signup_isp = signupNetworkInfo.isp;
+
     const request = isSignup
       ? db.auth.signUp({
           email,
           password,
           options: {
-            data: { display_name: displayName },
+            data: signupMetadata,
           },
         })
       : db.auth.signInWithPassword({ email, password });
@@ -1974,6 +2085,10 @@ async function handleAuthSubmit(event) {
     showToast(isSignup ? "สมัครและเข้าสู่ระบบแล้ว" : "เข้าสู่ระบบแล้ว");
   } catch (error) {
     console.error(isSignup ? "Sign up failed:" : "Sign in failed:", error);
+    void window.AudioVaultSecurity?.report(isSignup ? "signup_failed" : "login_failed", isSignup ? "low" : "medium", {
+      email,
+      message: String(error?.message || error || "").slice(0, 500),
+    });
     showToast(authErrorMessage(error, email), 7200);
   } finally {
     authSubmit.disabled = false;
@@ -2516,12 +2631,14 @@ authModal.addEventListener("click", (event) => {
   if (event.target === authModal) closeAuthModal();
 });
 
-setAuthMode("signin");
-renderCommunity();
-initAuth();
-loadCommunityMessages();
-loadItems();
+void (async () => {
+  setAuthMode("signin");
+  renderCommunity();
+  await initAuth();
+  await loadCommunityMessages();
+  loadItems();
 
-if (window.location.hash === "#list") {
-  window.setTimeout(jumpToList, 0);
-}
+  if (window.location.hash === "#list") {
+    window.setTimeout(jumpToList, 0);
+  }
+})();

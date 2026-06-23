@@ -196,6 +196,7 @@ function renderGate() {
     gateMessage.textContent = "กรุณาเข้าสู่ระบบด้วยบัญชีแอดมินก่อน";
     adminGate.hidden = false;
     adminContent.hidden = true;
+    void window.AudioVaultSecurity?.detectProtectedPageAccess?.(null, false);
     return false;
   }
 
@@ -204,6 +205,7 @@ function renderGate() {
     gateMessage.textContent = `บัญชี ${user.email || "-"} ยังไม่มีสิทธิ์แอดมิน`;
     adminGate.hidden = false;
     adminContent.hidden = true;
+    void window.AudioVaultSecurity?.detectProtectedPageAccess?.(user, false);
     return false;
   }
 
