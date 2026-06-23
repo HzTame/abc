@@ -588,6 +588,18 @@ function ownsCommunityPost(post, user = currentUser()) {
   return Boolean(user?.id && post?.userId && String(user.id) === String(post.userId));
 }
 
+function findCommunityReply(replyId) {
+  for (const post of communityMessages) {
+    const reply = (post.replies || []).find((entry) => String(entry.id) === String(replyId));
+    if (reply) return { post, reply };
+  }
+  return { post: null, reply: null };
+}
+
+function ownsCommunityReply(reply, user = currentUser()) {
+  return Boolean(user?.id && reply?.userId && String(user.id) === String(reply.userId));
+}
+
 function renderCommunity() {
   if (!postComposer || !communityLogin || !communityPostsNode) return;
   const user = currentUser();
@@ -639,17 +651,33 @@ function renderCommunity() {
             replies.length
               ? `<div class="replies">
                   ${replies
-                    .map(
-                      (reply) => `
+                    .map((reply) => {
+                      const ownsReply = ownsCommunityReply(reply, user);
+                      return `
                         <div class="reply-item">
                           <div class="reply-head">
                             <span class="reply-author">${esc(reply.author || "สมาชิก")}</span>
                             <time class="post-time">${esc(communityTime(reply.createdAt))}</time>
                           </div>
                           <p class="reply-message">${esc(reply.message)}</p>
+                          ${
+                            ownsReply
+                              ? `<div class="reply-owner-actions">
+                                  <button class="post-edit-toggle" type="button" data-edit-reply="${esc(reply.id)}">แก้ไข</button>
+                                  <button class="post-delete-button" type="button" data-delete-own-reply="${esc(reply.id)}">ลบ</button>
+                                </div>
+                                <form class="reply-edit-form" data-edit-reply-form="${esc(reply.id)}" hidden>
+                                  <textarea maxlength="500" rows="2" aria-label="แก้ไขข้อความตอบกลับ" required>${esc(reply.message)}</textarea>
+                                  <div class="post-edit-actions">
+                                    <button class="reply-submit" type="submit">บันทึก</button>
+                                    <button class="post-edit-cancel" type="button" data-cancel-edit-reply="${esc(reply.id)}">ยกเลิก</button>
+                                  </div>
+                                </form>`
+                              : ""
+                          }
                         </div>
-                      `
-                    )
+                      `;
+                    })
                     .join("")}
                 </div>`
               : ""
@@ -703,6 +731,9 @@ async function handleCommunityClick(event) {
   const editToggle = event.target.closest("[data-edit-post]");
   const editCancel = event.target.closest("[data-cancel-edit-post]");
   const deleteButton = event.target.closest("[data-delete-own-post]");
+  const editReplyToggle = event.target.closest("[data-edit-reply]");
+  const editReplyCancel = event.target.closest("[data-cancel-edit-reply]");
+  const deleteReplyButton = event.target.closest("[data-delete-own-reply]");
   const user = currentUser();
 
   if (replyToggle) {
@@ -729,6 +760,51 @@ async function handleCommunityClick(event) {
     if (!form) return;
     form.hidden = editCancel ? true : !form.hidden;
     if (!form.hidden) form.querySelector("textarea")?.focus();
+    return;
+  }
+
+  if (editReplyToggle || editReplyCancel) {
+    const replyId = editReplyToggle?.dataset.editReply || editReplyCancel?.dataset.cancelEditReply;
+    const { reply } = findCommunityReply(replyId);
+    if (!ownsCommunityReply(reply, user)) {
+      showToast("เฉพาะเจ้าของข้อความตอบกลับเท่านั้นที่แก้ไขได้");
+      return;
+    }
+    const form = communityPostsNode.querySelector(`[data-edit-reply-form="${CSS.escape(String(replyId))}"]`);
+    if (!form) return;
+    form.hidden = Boolean(editReplyCancel) || !form.hidden;
+    if (!form.hidden) form.querySelector("textarea")?.focus();
+    return;
+  }
+
+  if (deleteReplyButton) {
+    const { reply } = findCommunityReply(deleteReplyButton.dataset.deleteOwnReply);
+    if (!ownsCommunityReply(reply, user)) {
+      showToast("เฉพาะเจ้าของข้อความตอบกลับเท่านั้นที่ลบได้");
+      return;
+    }
+    if (!window.confirm("ลบข้อความตอบกลับนี้ใช่ไหม? การลบไม่สามารถย้อนกลับได้")) return;
+    if (!db) {
+      showToast("ยังไม่ได้เชื่อมต่อ Supabase");
+      return;
+    }
+
+    deleteReplyButton.disabled = true;
+    const { data, error } = await db
+      .from(COMMUNITY_REPLIES_TABLE)
+      .delete()
+      .eq("id", reply.id)
+      .eq("user_id", user.id)
+      .select("id");
+
+    if (error || !data?.length) {
+      deleteReplyButton.disabled = false;
+      showToast(error ? `ลบข้อความตอบกลับไม่สำเร็จ: ${error.message}` : "ไม่มีสิทธิ์ลบข้อความตอบกลับนี้", 6200);
+      return;
+    }
+
+    await loadCommunityMessages();
+    showToast("ลบข้อความตอบกลับแล้ว");
     return;
   }
 
@@ -797,8 +873,43 @@ async function handleEditPostSubmit(event) {
   return true;
 }
 
+async function handleEditReplySubmit(event) {
+  const form = event.target.closest("[data-edit-reply-form]");
+  if (!form) return false;
+  event.preventDefault();
+
+  const user = currentUser();
+  const { reply } = findCommunityReply(form.dataset.editReplyForm);
+  const message = form.querySelector("textarea")?.value.trim();
+  if (!ownsCommunityReply(reply, user)) {
+    showToast("เฉพาะเจ้าของข้อความตอบกลับเท่านั้นที่แก้ไขได้");
+    return true;
+  }
+  if (!message || !db) return true;
+
+  const submitButton = form.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  const { data, error } = await db
+    .from(COMMUNITY_REPLIES_TABLE)
+    .update({ message: message.slice(0, 500) })
+    .eq("id", reply.id)
+    .eq("user_id", user.id)
+    .select("id");
+  submitButton.disabled = false;
+
+  if (error || !data?.length) {
+    showToast(error ? `แก้ไขข้อความตอบกลับไม่สำเร็จ: ${error.message}` : "ไม่มีสิทธิ์แก้ไขข้อความตอบกลับนี้", 6200);
+    return true;
+  }
+
+  await loadCommunityMessages();
+  showToast("บันทึกข้อความตอบกลับแล้ว");
+  return true;
+}
+
 async function handleCommunitySubmit(event) {
   if (await handleEditPostSubmit(event)) return;
+  if (await handleEditReplySubmit(event)) return;
   await handleReplySubmit(event);
 }
 

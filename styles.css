@@ -4170,10 +4170,16 @@ body.page-home .hero-image {
 }
 
 .post-owner-actions,
+.reply-owner-actions,
 .post-edit-actions {
   display: flex;
   align-items: center;
   gap: 7px;
+}
+
+.reply-owner-actions {
+  justify-content: flex-end;
+  margin-top: 9px;
 }
 
 .post-edit-toggle,
@@ -4210,7 +4216,8 @@ body.page-home .hero-image {
   transform: translateY(-1px);
 }
 
-.post-edit-form {
+.post-edit-form,
+.reply-edit-form {
   display: grid;
   gap: 9px;
   margin-top: 12px;
@@ -4220,11 +4227,13 @@ body.page-home .hero-image {
   padding: 12px;
 }
 
-.post-edit-form[hidden] {
+.post-edit-form[hidden],
+.reply-edit-form[hidden] {
   display: none;
 }
 
-.post-edit-form textarea {
+.post-edit-form textarea,
+.reply-edit-form textarea {
   width: 100%;
   resize: vertical;
   border: 1px solid rgba(78, 90, 135, 0.13);
@@ -4235,7 +4244,8 @@ body.page-home .hero-image {
   padding: 10px 12px;
 }
 
-.post-edit-form textarea:focus {
+.post-edit-form textarea:focus,
+.reply-edit-form textarea:focus {
   border-color: rgba(100, 117, 255, 0.5);
   box-shadow: 0 0 0 4px rgba(100, 117, 255, 0.1);
 }
