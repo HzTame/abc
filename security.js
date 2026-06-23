@@ -3,7 +3,7 @@
   const SUPABASE_ANON_KEY = "sb_publishable_sFwmcOAlRvzhyULupo4KcQ_UAxqDOQV";
   const SECURITY_EVENTS_TABLE = "security_events";
   const ADMIN_EMAILS = ["mameenokair@gmail.com"];
-  const SECURITY_VERSION = "20260623-security-watch";
+  const SECURITY_VERSION = "20260623-network-fix-3";
 
   const configured = window.supabase && SUPABASE_URL.startsWith("https://") && SUPABASE_ANON_KEY;
   const securityDb = configured
@@ -45,14 +45,31 @@
     );
   }
 
+  function mergeNetworkInfo(results) {
+    const merged = {};
+    const keys = ["ip", "city", "region", "country", "isp"];
+
+    results
+      .filter((info) => networkScore(info) > 0)
+      .sort((a, b) => networkScore(b) - networkScore(a))
+      .forEach((info) => {
+        keys.forEach((key) => {
+          if (!merged[key] && info[key]) merged[key] = info[key];
+        });
+      });
+
+    return merged;
+  }
+
   async function fetchNetworkService(service) {
     const controller = typeof AbortController === "function" ? new AbortController() : null;
-    const timer = controller ? window.setTimeout(() => controller.abort(), 3500) : null;
+    const timer = controller ? window.setTimeout(() => controller.abort(), 6500) : null;
 
     try {
       const response = await fetch(service.url, {
         cache: "no-store",
         signal: controller?.signal,
+        headers: { Accept: "application/json" },
       });
       if (!response.ok) return {};
 
@@ -81,6 +98,19 @@
 
       const services = [
         {
+          url: "https://ipwho.is/",
+          read: (data) =>
+            data?.success === false
+              ? {}
+              : {
+                  ip: data?.ip,
+                  city: data?.city,
+                  region: data?.region,
+                  country: data?.country,
+                  isp: data?.connection?.isp || data?.connection?.org,
+                },
+        },
+        {
           url: "https://ipapi.co/json/",
           read: (data) => ({
             ip: data?.ip,
@@ -88,16 +118,6 @@
             region: data?.region,
             country: data?.country_name,
             isp: data?.org || data?.asn,
-          }),
-        },
-        {
-          url: "https://ipwho.is/",
-          read: (data) => ({
-            ip: data?.ip,
-            city: data?.city,
-            region: data?.region,
-            country: data?.country,
-            isp: data?.connection?.isp || data?.connection?.org,
           }),
         },
         {
@@ -120,13 +140,13 @@
         },
       ];
 
-      const results = await Promise.allSettled(services.map(fetchNetworkService));
-      return (
-        results
-          .map((result) => (result.status === "fulfilled" ? result.value : {}))
-          .filter((info) => networkScore(info) > 0)
-          .sort((a, b) => networkScore(b) - networkScore(a))[0] || {}
+      const settled = await Promise.allSettled(services.map(fetchNetworkService));
+      const merged = mergeNetworkInfo(
+        settled.map((result) => (result.status === "fulfilled" ? result.value : {}))
       );
+
+      if (networkScore(merged) === 0) networkInfoPromise = null;
+      return merged;
     })();
 
     return networkInfoPromise;

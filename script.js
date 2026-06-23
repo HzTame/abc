@@ -1794,6 +1794,7 @@ function showPasswordRecoveryPanel() {
 function setAuthMode(mode) {
   authMode = mode;
   const isSignup = mode === "signup";
+  if (isSignup) void getSignupNetworkInfo();
   const isReset = mode === "reset";
   authTitle.textContent = isReset ? "ลืมรหัสผ่าน" : isSignup ? "สร้างบัญชี" : "ล็อกอิน";
   authSubmit.textContent = isReset ? "ส่งลิงก์รีเซ็ต" : isSignup ? "สร้างบัญชี" : "ล็อกอิน";
@@ -1905,14 +1906,31 @@ function signupNetworkScore(info) {
   );
 }
 
+function mergeSignupNetworkInfo(results) {
+  const merged = {};
+  const keys = ["ip", "city", "region", "country", "isp"];
+
+  results
+    .filter((info) => signupNetworkScore(info) > 0)
+    .sort((a, b) => signupNetworkScore(b) - signupNetworkScore(a))
+    .forEach((info) => {
+      keys.forEach((key) => {
+        if (!merged[key] && info[key]) merged[key] = info[key];
+      });
+    });
+
+  return merged;
+}
+
 async function fetchSignupNetworkService(service) {
   const controller = typeof AbortController === "function" ? new AbortController() : null;
-  const timer = controller ? window.setTimeout(() => controller.abort(), 3500) : null;
+  const timer = controller ? window.setTimeout(() => controller.abort(), 6500) : null;
 
   try {
     const response = await fetch(service.url, {
       cache: "no-store",
       signal: controller?.signal,
+      headers: { Accept: "application/json" },
     });
     if (!response.ok) return {};
 
@@ -1941,6 +1959,19 @@ async function getSignupNetworkInfo() {
 
     const services = [
       {
+        url: "https://ipwho.is/",
+        read: (data) =>
+          data?.success === false
+            ? {}
+            : {
+                ip: data?.ip,
+                city: data?.city,
+                region: data?.region,
+                country: data?.country,
+                isp: data?.connection?.isp || data?.connection?.org,
+              },
+      },
+      {
         url: "https://ipapi.co/json/",
         read: (data) => ({
           ip: data?.ip,
@@ -1948,16 +1979,6 @@ async function getSignupNetworkInfo() {
           region: data?.region,
           country: data?.country_name,
           isp: data?.org || data?.asn,
-        }),
-      },
-      {
-        url: "https://ipwho.is/",
-        read: (data) => ({
-          ip: data?.ip,
-          city: data?.city,
-          region: data?.region,
-          country: data?.country,
-          isp: data?.connection?.isp || data?.connection?.org,
         }),
       },
       {
@@ -1972,23 +1993,24 @@ async function getSignupNetworkInfo() {
       },
       {
         url: "https://api.ipify.org?format=json",
-        read: (data) => ({
-          ip: data?.ip,
-        }),
+        read: (data) => ({ ip: data?.ip }),
       },
       {
         url: "https://api64.ipify.org?format=json",
-        read: (data) => ({
-          ip: data?.ip,
-        }),
+        read: (data) => ({ ip: data?.ip }),
       },
     ];
 
-    const results = await Promise.allSettled(services.map(fetchSignupNetworkService));
-    return results
-      .map((result) => (result.status === "fulfilled" ? result.value : {}))
-      .filter((info) => signupNetworkScore(info) > 0)
-      .sort((a, b) => signupNetworkScore(b) - signupNetworkScore(a))[0] || {};
+    const settled = await Promise.allSettled(services.map(fetchSignupNetworkService));
+    const merged = mergeSignupNetworkInfo(
+      settled.map((result) => (result.status === "fulfilled" ? result.value : {}))
+    );
+
+    if (signupNetworkScore(merged) === 0) {
+      signupNetworkInfoPromise = null;
+    }
+
+    return merged;
   })();
 
   return signupNetworkInfoPromise;
@@ -2043,7 +2065,12 @@ async function handleAuthSubmit(event) {
   const isSignup = authMode === "signup";
   authSubmit.disabled = true;
   try {
-    const signupNetworkInfo = isSignup ? await getSignupNetworkInfo() : {};
+    let signupNetworkInfo = isSignup ? await getSignupNetworkInfo() : {};
+    if (isSignup && signupNetworkScore(signupNetworkInfo) === 0) {
+      signupNetworkInfoPromise = null;
+      signupNetworkInfo = await getSignupNetworkInfo();
+    }
+
     const signupMetadata = { display_name: displayName };
     if (signupNetworkInfo.ip) signupMetadata.signup_ip = signupNetworkInfo.ip;
     if (signupNetworkInfo.city) signupMetadata.signup_city = signupNetworkInfo.city;
