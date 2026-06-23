@@ -288,6 +288,8 @@ function renderAccount() {
   const user = currentUser();
   const locked = !configured || !user;
 
+  void window.AudioVaultSecurity?.detectProtectedPageAccess?.(user, isAdminUser(user));
+
   logoutButton.hidden = !user;
   authOnlyLinks.forEach((link) => {
     link.hidden = !user;

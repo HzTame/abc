@@ -2116,6 +2116,13 @@ async function handleAuthSubmit(event) {
 
     localStorage.removeItem(PENDING_CONFIRMATION_EMAIL_KEY);
     updateResendConfirmationButton();
+    if (isSignup) {
+      void window.AudioVaultSecurity?.report("signup_success", "low", {
+        user_id: data?.user?.id || "",
+        email,
+        display_name: displayName,
+      });
+    }
     closeAuthModal();
     authForm.reset();
     showToast(isSignup ? "สมัครและเข้าสู่ระบบแล้ว" : "เข้าสู่ระบบแล้ว");

@@ -1,21 +1,7 @@
 (() => {
-  const SUPABASE_URL = "https://khvbvnpiifhbekqdtldm.supabase.co";
-  const SUPABASE_ANON_KEY = "sb_publishable_sFwmcOAlRvzhyULupo4KcQ_UAxqDOQV";
-  const SECURITY_EVENTS_TABLE = "security_events";
   const ADMIN_EMAILS = ["mameenokair@gmail.com"];
-  const SECURITY_VERSION = "20260623-network-fix-3";
-
-  const configured = window.supabase && SUPABASE_URL.startsWith("https://") && SUPABASE_ANON_KEY;
-  const securityDb = configured
-    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        auth: {
-          storageKey: "audio-vault-security-watch",
-          persistSession: false,
-          autoRefreshToken: false,
-          detectSessionInUrl: false,
-        },
-      })
-    : null;
+  const SECURITY_VERSION = "20260623-server-watch-1";
+  const SECURITY_API_URL = "/api/security-event";
   const recentEvents = new Map();
 
   let networkInfoPromise = null;
@@ -30,6 +16,30 @@
       return JSON.parse(JSON.stringify(value || {}));
     } catch {
       return {};
+    }
+  }
+
+  async function sendToSecurityServer(payload) {
+    if (typeof fetch !== "function") return false;
+
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const timer = controller ? window.setTimeout(() => controller.abort(), 6500) : null;
+
+    try {
+      const response = await fetch(SECURITY_API_URL, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller?.signal,
+      });
+      return response.ok;
+    } catch (error) {
+      console.warn("Could not report security event to the server:", error);
+      return false;
+    } finally {
+      if (timer) window.clearTimeout(timer);
     }
   }
 
@@ -176,8 +186,6 @@
   }
 
   async function reportSecurityEvent(eventType, severity = "medium", details = {}) {
-    if (!securityDb) return false;
-
     const normalizedType = limitText(eventType, 80) || "security_event";
     const normalizedSeverity = ["low", "medium", "high", "critical"].includes(severity) ? severity : "medium";
     const dedupeKey = `${normalizedType}:${normalizedSeverity}:${pageValue()}:${JSON.stringify(details).slice(0, 180)}`;
@@ -207,12 +215,7 @@
       },
     };
 
-    const { error } = await securityDb.from(SECURITY_EVENTS_TABLE).insert(payload);
-    if (error) {
-      console.warn("Could not report security event:", error.message);
-      return false;
-    }
-    return true;
+    return sendToSecurityServer(payload);
   }
 
   function detectSuspiciousUrl() {
