@@ -1548,27 +1548,20 @@ function safeDownloadName(fileName) {
     .trim();
 }
 
-function hasVerifiedEmailSession() {
-  const user = session?.user;
-  return Boolean(user?.email && (user.email_confirmed_at || user.confirmed_at));
+function hasSignedInEmailAccount() {
+  return Boolean(currentUser()?.email);
 }
 
-function requireVerifiedEmailForDownload() {
-  if (hasVerifiedEmailSession()) return true;
+function requireEmailAccountForDownload() {
+  if (hasSignedInEmailAccount()) return true;
 
   if (!db) {
     showToast("ระบบสมาชิกยังไม่พร้อม จึงยังดาวน์โหลดไม่ได้ กรุณาลองใหม่ภายหลัง", 6200);
     return false;
   }
 
-  const pendingEmail = localStorage.getItem(PENDING_CONFIRMATION_EMAIL_KEY) || "";
-  openAuth(pendingEmail ? "signin" : "signup");
-  showToast(
-    pendingEmail
-      ? "กรุณาเปิดอีเมลเพื่อยืนยันบัญชี แล้วล็อกอินก่อนดาวน์โหลด"
-      : "สมัครบัญชีและยืนยันอีเมลก่อนดาวน์โหลด",
-    6200,
-  );
+  openAuth("signup");
+  showToast("กรุณาสมัครด้วยอีเมลจริงหรือล็อกอินก่อนดาวน์โหลด", 6200);
   return false;
 }
 
@@ -1608,7 +1601,7 @@ async function recordDownload(item) {
 }
 
 async function downloadItem(item) {
-  if (!requireVerifiedEmailForDownload()) return;
+  if (!requireEmailAccountForDownload()) return;
 
   const fileName = downloadFileName(item);
 
@@ -1732,8 +1725,7 @@ function emailConfirmationRedirectUrl() {
 
 function updateResendConfirmationButton() {
   if (!resendConfirmationButton) return;
-  const pendingEmail = localStorage.getItem(PENDING_CONFIRMATION_EMAIL_KEY) || "";
-  resendConfirmationButton.hidden = authMode !== "signin" || Boolean(currentUser()) || !pendingEmail;
+  resendConfirmationButton.hidden = true;
 }
 
 async function handleResendConfirmation() {
@@ -1953,7 +1945,6 @@ async function handleAuthSubmit(event) {
           email,
           password,
           options: {
-            emailRedirectTo: emailConfirmationRedirectUrl(),
             data: { display_name: displayName },
           },
         })
@@ -1963,18 +1954,16 @@ async function handleAuthSubmit(event) {
     if (error) throw error;
 
     if (isSignup && Array.isArray(data?.user?.identities) && data.user.identities.length === 0) {
-      localStorage.setItem(PENDING_CONFIRMATION_EMAIL_KEY, email);
       setAuthMode("signin");
       authForm.reset();
-      showToast("อีเมลนี้เคยสมัครแล้ว หากยังไม่ได้ยืนยันให้กดส่งอีเมลยืนยันอีกครั้ง", 7200);
+      showToast("อีเมลนี้เคยสมัครแล้ว ลองล็อกอินหรือกดลืมรหัสผ่าน", 7200);
       return;
     }
 
     if (isSignup && !data?.session) {
-      localStorage.setItem(PENDING_CONFIRMATION_EMAIL_KEY, email);
       setAuthMode("signin");
       authForm.reset();
-      showToast("ส่งอีเมลยืนยันแล้ว กรุณาเช็กในกล่องข้อความ หรือกดส่งอีกครั้ง", 7200);
+      showToast("สมัครแล้วแต่ยังเข้าใช้ไม่ได้ กรุณาตรวจว่าเปิด Auto confirm ใน Supabase Auth แล้ว", 7200);
       return;
     }
 
@@ -2145,11 +2134,11 @@ function authErrorMessage(error, email = "", action = "auth") {
   }
 
   if (/email not confirmed/i.test(message)) {
-    return "กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ";
+    return "ระบบยังบังคับยืนยันอีเมล กรุณาเปิด Auto confirm ใน Supabase Auth";
   }
   if (/invalid login credentials/i.test(message)) {
     const typoHint = email.endsWith("@gmall.com") ? " ตรวจดูว่าอีเมลเป็น @gmail.com หรือไม่" : "";
-    return `อีเมลหรือรหัสผ่านไม่ถูกต้อง หรือยังไม่ได้ยืนยันอีเมล${typoHint}`;
+    return `อีเมลหรือรหัสผ่านไม่ถูกต้อง${typoHint}`;
   }
   if (/smtp|error sending (recovery )?email|unexpected_failure|email rate limit/i.test(message)) {
     return "ส่งอีเมลไม่สำเร็จ กรุณาตรวจสอบ Custom SMTP, Gmail และ App Password แล้วลองใหม่";

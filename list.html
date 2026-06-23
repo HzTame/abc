@@ -161,12 +161,12 @@
             <input id="displayName" type="text" placeholder="ชื่อเล่นหรือชื่อที่ต้องการ" />
           </label>
           <label>
-            อีเมล
-            <input id="email" type="email" placeholder="you@example.com" required />
+            อีเมลจริง
+            <input id="email" type="email" placeholder="you@example.com" autocomplete="email" required />
           </label>
           <p class="auth-help signup-only" hidden>
             ชื่อโปรไฟล์ตั้งเป็นชื่ออะไรก็ได้ ไม่จำเป็นต้องใช้ชื่อจริง<br />
-            ต้องใช้อีเมลที่มีอยู่จริงและกดลิงก์ยืนยันในอีเมล จึงจะเข้าสู่ระบบและดาวน์โหลดไฟล์ได้
+            ใช้อีเมลจริงเพื่อกู้หรือเปลี่ยนรหัสผ่านภายหลัง สมัครเสร็จเข้าใช้งานได้ทันทีโดยไม่ต้องกดยืนยันอีเมล
           </p>
           <label id="passwordField">
             รหัสผ่าน
@@ -221,7 +221,7 @@
           </form>
 
           <form class="account-form" id="passwordForm">
-            <p class="auth-help">เพื่อความปลอดภัย ระบบจะส่งลิงก์เปลี่ยนรหัสผ่านไปยังอีเมลที่ยืนยันแล้วเท่านั้น</p>
+            <p class="auth-help">ระบบจะส่งลิงก์เปลี่ยนรหัสผ่านไปยังอีเมลที่สมัครไว้ เพื่อยืนยันว่าเป็นเจ้าของบัญชี</p>
             <button class="secondary-action account-action" type="submit">ส่งลิงก์เปลี่ยนรหัสผ่าน</button>
           </form>
 
