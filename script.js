@@ -1560,8 +1560,8 @@ function requireEmailAccountForDownload() {
     return false;
   }
 
-  openAuth("signup");
-  showToast("กรุณาสมัครด้วยอีเมลจริงหรือล็อกอินก่อนดาวน์โหลด", 6200);
+  openAuth("signin");
+  showToast("กรุณาล็อกอินก่อนดาวน์โหลด หากยังไม่มีบัญชีให้กดสร้างบัญชี", 6200);
   return false;
 }
 
