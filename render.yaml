@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: the-audio-vault
+    runtime: node
+    plan: free
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: DISCORD_WEBHOOK_URL
+        sync: false
+      - key: SUPABASE_URL
+        value: https://khvbvnpiifhbekqdtldm.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
