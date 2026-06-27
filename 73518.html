@@ -2,7 +2,7 @@
 (() => {
   const getDownloads = (node) => {
     const text = (node.textContent || '').replace(/,/g, '');
-    const matches = [...text.matchAll(/(\d+)\s*(?:ดาวน์โหลด|downloads?)/gi)];
+    const matches = [...text.matchAll(/(\d+)\s*(?:โหลด|ดาวน์โหลด|downloads?)/gi)];
     return matches.reduce((max, match) => Math.max(max, Number(match[1]) || 0), 0);
   };
   const rankVisibleCards = () => {
@@ -14,11 +14,16 @@
       .sort((a, b) => (b.score - a.score) || (a.index - b.index));
     ranked.forEach(({ card }) => list.appendChild(card));
   };
+  const scheduleRank = () => {
+    window.setTimeout(rankVisibleCards, 0);
+    window.setTimeout(rankVisibleCards, 150);
+    window.setTimeout(rankVisibleCards, 500);
+    window.setTimeout(rankVisibleCards, 1000);
+  };
   document.addEventListener('click', (event) => {
     const button = event.target.closest('[data-view="list"]');
     if (!button) return;
-    window.setTimeout(rankVisibleCards, 0);
-    window.setTimeout(rankVisibleCards, 250);
+    scheduleRank();
   }, true);
 })();
 </script></body></html>
