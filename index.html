@@ -5,25 +5,53 @@
     const matches = [...text.matchAll(/(\d+)\s*(?:โหลด|ดาวน์โหลด|downloads?)/gi)];
     return matches.reduce((max, match) => Math.max(max, Number(match[1]) || 0), 0);
   };
+
+  let sortTimer = 0;
+  let observer = null;
+
+  const isListMode = () =>
+    document.querySelector('[data-view="list"]')?.classList.contains('active') ||
+    document.querySelector('#items')?.classList.contains('list-view');
+
   const rankVisibleCards = () => {
     const list = document.querySelector('#items');
-    if (!list || list.children.length < 2) return;
+    if (!list || !isListMode()) return;
     const cards = [...list.children].filter((card) => card.nodeType === 1);
+    if (cards.length < 2) return;
+
     const ranked = cards
       .map((card, index) => ({ card, index, score: getDownloads(card) }))
       .sort((a, b) => (b.score - a.score) || (a.index - b.index));
-    ranked.forEach(({ card }) => list.appendChild(card));
+
+    const sameOrder = ranked.every(({ card }, index) => card === cards[index]);
+    if (sameOrder) return;
+
+    const fragment = document.createDocumentFragment();
+    ranked.forEach(({ card }) => fragment.appendChild(card));
+    list.appendChild(fragment);
   };
-  const scheduleRank = () => {
-    window.setTimeout(rankVisibleCards, 0);
-    window.setTimeout(rankVisibleCards, 150);
-    window.setTimeout(rankVisibleCards, 500);
-    window.setTimeout(rankVisibleCards, 1000);
+
+  const queueRank = () => {
+    window.clearTimeout(sortTimer);
+    sortTimer = window.setTimeout(rankVisibleCards, 120);
   };
+
+  const watchNextRender = () => {
+    const list = document.querySelector('#items');
+    if (!list) return;
+    observer?.disconnect();
+    observer = new MutationObserver(queueRank);
+    observer.observe(list, { childList: true });
+    queueRank();
+    window.setTimeout(() => observer?.disconnect(), 2500);
+  };
+
   document.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-view="list"]');
-    if (!button) return;
-    scheduleRank();
+    if (event.target.closest('[data-view="list"], [data-filter]')) watchNextRender();
+  }, true);
+
+  document.addEventListener('input', (event) => {
+    if (event.target.closest('#searchInput') && isListMode()) watchNextRender();
   }, true);
 })();
 </script></body></html>
