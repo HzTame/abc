@@ -9,7 +9,7 @@ const ROOT = __dirname;
 const DISCORD_WEBHOOK_URL = String(process.env.DISCORD_WEBHOOK_URL || "").trim();
 const SUPABASE_URL = String(process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
-const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || process.env.ADMIN_EMAIL || "")
+const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || process.env.ADMIN_EMAIL || "mameenokair@gmail.com")
   .split(/[,\s]+/)
   .map((email) => email.trim().toLowerCase())
   .filter(Boolean);
@@ -405,7 +405,7 @@ async function verifyAdminRequest(req) {
     const email = String(user?.email || "").toLowerCase();
     const hasRole = user?.app_metadata?.role === "admin" || user?.user_metadata?.role === "admin";
     if (!email || (!ADMIN_EMAILS.includes(email) && !hasRole)) {
-      const setupHint = ADMIN_EMAILS.length ? "Forbidden" : "Set ADMIN_EMAILS on Render to your admin email first";
+      const setupHint = ADMIN_EMAILS.length ? "บัญชีนี้ไม่มีสิทธิ์แอดมิน" : "ยังไม่ได้ตั้งค่าอีเมลแอดมินบน Render";
       return { status: 403, error: setupHint };
     }
 
