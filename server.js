@@ -9,6 +9,10 @@ const ROOT = __dirname;
 const DISCORD_WEBHOOK_URL = String(process.env.DISCORD_WEBHOOK_URL || "").trim();
 const SUPABASE_URL = String(process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || process.env.ADMIN_EMAIL || "")
+  .split(/[,\s]+/)
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean);
 const MAX_BODY_BYTES = 16 * 1024;
 
 const PUBLIC_FILES = new Set([
@@ -22,6 +26,7 @@ const PUBLIC_FILES = new Set([
   "styles.css",
   "script.js",
   "admin.js",
+  "admin-extra.js",
   "upload.js",
   "security.js",
 ]);
@@ -377,6 +382,67 @@ async function handleSecurityApi(req, res, ip) {
   }
 }
 
+
+async function verifyAdminRequest(req) {
+  if (!sameOrigin(req)) return { status: 403, error: "Origin is not allowed" };
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    return { status: 503, error: "Supabase server credentials are not configured" };
+  }
+
+  const authHeader = String(req.headers.authorization || "");
+  const token = authHeader.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  if (!token) return { status: 401, error: "Admin session is required" };
+
+  try {
+    const user = await fetchJson(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      },
+    }, 5000);
+
+    const email = String(user?.email || "").toLowerCase();
+    const hasRole = user?.app_metadata?.role === "admin" || user?.user_metadata?.role === "admin";
+    if (!email || (!ADMIN_EMAILS.includes(email) && !hasRole)) {
+      const setupHint = ADMIN_EMAILS.length ? "Forbidden" : "Set ADMIN_EMAILS on Render to your admin email first";
+      return { status: 403, error: setupHint };
+    }
+
+    return { ok: true, user };
+  } catch (error) {
+    return { status: 401, error: text(error.message, 200) || "Invalid admin session" };
+  }
+}
+
+async function handleAdminUsersApi(req, res) {
+  if (req.method !== "GET") return json(res, 405, { error: "Method not allowed" });
+
+  const admin = await verifyAdminRequest(req);
+  if (!admin.ok) return json(res, admin.status || 403, { error: admin.error || "Forbidden" });
+
+  try {
+    const data = await fetchJson(`${SUPABASE_URL}/auth/v1/admin/users?per_page=200&page=1`, {
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        Accept: "application/json",
+      },
+    }, 7000);
+
+    const rawUsers = Array.isArray(data) ? data : Array.isArray(data?.users) ? data.users : [];
+    const users = rawUsers.map((user) => ({
+      id: text(user.id, 80),
+      email: text(user.email, 254),
+      name: text(user.user_metadata?.display_name || user.user_metadata?.name || user.user_metadata?.full_name || user.email || "No name", 160),
+      created_at: text(user.created_at, 80),
+    })).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+    return json(res, 200, { count: users.length, users });
+  } catch (error) {
+    return json(res, 502, { error: text(error.message, 200) });
+  }
+}
 function serveFile(req, res, pathname) {
   const fileName = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
   if (!PUBLIC_FILES.has(fileName)) {
@@ -434,6 +500,10 @@ const server = http.createServer(async (req, res) => {
 
   if (rawUrl.split("?")[0] === "/api/security-event") {
     return handleSecurityApi(req, res, ip);
+  }
+
+  if (rawUrl.split("?")[0] === "/api/admin-users") {
+    return handleAdminUsersApi(req, res);
   }
 
   const probe = classifyRequest(method, rawUrl);
