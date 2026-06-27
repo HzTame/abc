@@ -7,7 +7,11 @@
   const userList = document.querySelector("#adminUserList");
   const userCount = document.querySelector("#adminUserCount");
   const refreshUsers = document.querySelector("#refreshUsers");
+  const onlineList = document.querySelector("#adminOnlineList");
+  const onlineCount = document.querySelector("#adminOnlineCount");
+  const refreshOnline = document.querySelector("#refreshOnlineUsers");
   let usersLoaded = false;
+  let onlineTimer = null;
 
   function normalize(value) {
     return String(value || "").toLowerCase().trim();
@@ -73,6 +77,54 @@
     `).join("");
   }
 
+
+  function renderOnlineUsers(users) {
+    if (!onlineList || !onlineCount) return;
+    onlineCount.textContent = `${users.length} ออนไลน์`;
+    if (!users.length) {
+      onlineList.innerHTML = '<div class="empty admin-online-empty">ยังไม่มีบัญชีออนไลน์</div>';
+      return;
+    }
+    onlineList.innerHTML = users.map((user) => `
+      <article class="admin-online-row">
+        <span class="online-dot" aria-hidden="true"></span>
+        <div>
+          <strong>${escapeHtml(user.name || user.email || "ไม่มีชื่อ")}</strong>
+          <p>${escapeHtml(user.email || "ไม่มีอีเมล")}</p>
+          <small>${escapeHtml(user.page || "/")}</small>
+        </div>
+      </article>
+    `).join("");
+  }
+
+  async function loadOnlineUsers() {
+    if (!onlineList || !onlineCount) return;
+    const token = sessionToken();
+    if (!token) {
+      onlineCount.textContent = "0 ออนไลน์";
+      onlineList.innerHTML = '<div class="empty admin-online-empty">ล็อกอินแอดมินก่อนดูออนไลน์</div>';
+      return;
+    }
+    try {
+      const response = await fetch("/api/presence", {
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      renderOnlineUsers(Array.isArray(data.users) ? data.users : []);
+    } catch (error) {
+      onlineCount.textContent = "โหลดไม่ได้";
+      onlineList.innerHTML = `<div class="empty admin-online-empty">${escapeHtml(error.message || "โหลดออนไลน์ไม่สำเร็จ")}</div>`;
+    }
+  }
+
+  function startOnlinePolling() {
+    if (!onlineList || onlineTimer) return;
+    void loadOnlineUsers();
+    onlineTimer = window.setInterval(loadOnlineUsers, 8000);
+  }
   async function loadUsers() {
     if (!userList || !userCount) return;
     const token = sessionToken();
@@ -105,6 +157,8 @@
   }
 
   refreshUsers?.addEventListener("click", loadUsers);
+  refreshOnline?.addEventListener("click", loadOnlineUsers);
+  startOnlinePolling();
   document.querySelectorAll("[data-admin-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       if (button.dataset.adminTab === "users" && !usersLoaded) loadUsers();

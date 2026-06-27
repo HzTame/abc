@@ -29,6 +29,7 @@ const PUBLIC_FILES = new Set([
   "admin-extra.js",
   "upload.js",
   "security.js",
+  "presence.js",
 ]);
 
 const MIME_TYPES = {
@@ -52,6 +53,8 @@ const requestWindows = new Map();
 const apiWindows = new Map();
 const recentAlerts = new Map();
 const networkCache = new Map();
+const presenceUsers = new Map();
+const PRESENCE_TTL_MS = 45_000;
 
 function text(value, max = 500) {
   const result = String(value ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").trim();
@@ -383,6 +386,80 @@ async function handleSecurityApi(req, res, ip) {
 }
 
 
+
+async function verifyUserRequest(req) {
+  if (!sameOrigin(req)) return { status: 403, error: "Origin is not allowed" };
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    return { status: 503, error: "Supabase server credentials are not configured" };
+  }
+
+  const authHeader = String(req.headers.authorization || "");
+  const token = authHeader.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  if (!token) return { status: 401, error: "Session is required" };
+
+  try {
+    const user = await fetchJson(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      },
+    }, 5000);
+    if (!user?.id) return { status: 401, error: "Invalid session" };
+    return { ok: true, user };
+  } catch (error) {
+    return { status: 401, error: text(error.message, 200) || "Invalid session" };
+  }
+}
+
+function activePresenceUsers() {
+  const now = Date.now();
+  for (const [id, user] of presenceUsers.entries()) {
+    if (now - user.last_seen_ms > PRESENCE_TTL_MS) presenceUsers.delete(id);
+  }
+  return [...presenceUsers.values()]
+    .filter((user) => now - user.last_seen_ms <= PRESENCE_TTL_MS)
+    .sort((a, b) => b.last_seen_ms - a.last_seen_ms)
+    .map((user) => ({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      page: user.page,
+      last_seen_at: new Date(user.last_seen_ms).toISOString(),
+    }));
+}
+
+async function handlePresenceApi(req, res) {
+  if (req.method === "POST") {
+    const auth = await verifyUserRequest(req);
+    if (!auth.ok) return json(res, auth.status || 401, { error: auth.error || "Unauthorized" });
+
+    try {
+      const input = await readJson(req).catch(() => ({}));
+      const user = auth.user;
+      const name = text(user.user_metadata?.display_name || user.user_metadata?.name || user.user_metadata?.full_name || user.email || "No name", 160);
+      presenceUsers.set(String(user.id), {
+        id: text(user.id, 80),
+        email: text(user.email, 254),
+        name,
+        page: text(input.page || "/", 220),
+        last_seen_ms: Date.now(),
+      });
+      return json(res, 200, { ok: true, onlineCount: activePresenceUsers().length });
+    } catch (error) {
+      return json(res, error.status || 400, { error: text(error.message, 200) });
+    }
+  }
+
+  if (req.method === "GET") {
+    const admin = await verifyAdminRequest(req);
+    if (!admin.ok) return json(res, admin.status || 403, { error: admin.error || "Forbidden" });
+    const users = activePresenceUsers();
+    return json(res, 200, { count: users.length, users });
+  }
+
+  return json(res, 405, { error: "Method not allowed" });
+}
 async function verifyAdminRequest(req) {
   if (!sameOrigin(req)) return { status: 403, error: "Origin is not allowed" };
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
@@ -504,6 +581,10 @@ const server = http.createServer(async (req, res) => {
 
   if (rawUrl.split("?")[0] === "/api/admin-users") {
     return handleAdminUsersApi(req, res);
+  }
+
+  if (rawUrl.split("?")[0] === "/api/presence") {
+    return handlePresenceApi(req, res);
   }
 
   const probe = classifyRequest(method, rawUrl);
