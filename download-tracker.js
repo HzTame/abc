@@ -23,6 +23,20 @@
     localStorage.setItem(key, JSON.stringify(value));
   }
 
+  function notify(message) {
+    if (typeof window.showToast === "function") {
+      window.showToast(message);
+      return;
+    }
+
+    const toast = document.querySelector("#toast");
+    if (!toast) return;
+    toast.textContent = message;
+    toast.classList.add("show");
+    window.clearTimeout(notify.timer);
+    notify.timer = window.setTimeout(() => toast.classList.remove("show"), 2600);
+  }
+
   function sessionToken() {
     const directKey = `sb-${projectRef}-auth-token`;
     const keys = [directKey, ...Object.keys(localStorage).filter((key) => key.startsWith("sb-") && key.endsWith("-auth-token"))];
@@ -69,6 +83,101 @@
       asset_title: clean(title),
       file_name: clean(title),
     };
+  }
+
+  function shareUrlForPayload(payload) {
+    const url = new URL("./68145.html", window.location.href);
+    url.searchParams.set("asset", payload.asset_id || payload.asset_title || "");
+    url.searchParams.set("title", payload.asset_title || payload.asset_id || "Audio Vault file");
+    url.searchParams.set("v", "share");
+    return url.toString();
+  }
+
+  async function sharePayload(payload) {
+    const url = shareUrlForPayload(payload);
+    const data = {
+      title: payload.asset_title || "The Audio Vault",
+      text: payload.asset_title || "ไฟล์จาก The Audio Vault",
+      url,
+    };
+
+    try {
+      if (navigator.share) {
+        await navigator.share(data);
+        return true;
+      }
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        notify("คัดลอกลิงก์แชร์แล้ว");
+        return true;
+      }
+    } catch (error) {
+      if (error?.name === "AbortError") return false;
+    }
+
+    window.prompt("คัดลอกลิงก์แชร์", url);
+    return true;
+  }
+
+  function firstDatasetValue(root, names) {
+    const nodes = [root, ...root.querySelectorAll("*")];
+    for (const node of nodes) {
+      for (const name of names) {
+        const value = node?.dataset?.[name];
+        if (value) return value;
+      }
+    }
+    return "";
+  }
+
+  function assetIdFromCard(card) {
+    return clean(
+      card.dataset.assetId ||
+      card.dataset.asset ||
+      card.dataset.id ||
+      firstDatasetValue(card, ["download", "preview", "detail", "detailDownload", "detailPreview", "asset", "assetId", "openAsset"]) ||
+      card.querySelector("[data-download]")?.dataset.download ||
+      card.querySelector("[data-preview]")?.dataset.preview ||
+      "",
+      160
+    );
+  }
+
+  function assetTitleFromCard(card) {
+    return clean(
+      card.querySelector(".asset-title-button, h3, h2")?.textContent?.trim() ||
+      card.querySelector("[data-download], [data-preview]")?.getAttribute("aria-label") ||
+      assetIdFromCard(card) ||
+      "Audio Vault file"
+    );
+  }
+
+  function ensureCardShareButtons() {
+    document.querySelectorAll(".asset-card").forEach((card) => {
+      const assetId = assetIdFromCard(card);
+      if (!assetId) return;
+
+      let button = card.querySelector(".asset-card-share-button[data-share-asset]");
+      if (!button) {
+        button = document.createElement("button");
+        button.className = "share-button asset-card-share-button";
+        button.type = "button";
+        button.dataset.shareAsset = assetId;
+
+        let actions = card.querySelector(".asset-actions");
+        if (!actions) {
+          actions = document.createElement("div");
+          actions.className = "asset-actions asset-share-actions";
+          const body = card.querySelector(".asset-body") || card;
+          body.appendChild(actions);
+        }
+        actions.appendChild(button);
+      }
+
+      button.dataset.shareAsset = assetId;
+      button.dataset.shareTitle = assetTitleFromCard(card);
+    });
+    renderShareCounts();
   }
 
   function shareCounts() {
@@ -125,8 +234,7 @@
     } catch {}
   }
 
-  async function recordShare(button) {
-    const payload = payloadFromShareButton(button);
+  async function recordSharePayload(payload) {
     if ((!payload.asset_id && !payload.asset_title) || shouldSkip(recentShareLogs, payload, 2500)) return;
 
     const counts = shareCounts();
@@ -153,24 +261,35 @@
     }
   }
 
+  async function handleShareButton(button) {
+    const payload = payloadFromShareButton(button);
+    if (button.dataset.shareTitle) payload.asset_title = clean(button.dataset.shareTitle);
+    const didShare = await sharePayload(payload);
+    if (didShare) await recordSharePayload(payload);
+  }
+
   function startShareTracking() {
-    renderShareCounts();
+    ensureCardShareButtons();
     void fetchShareCounts();
 
     document.addEventListener("click", (event) => {
       const button = event.target.closest?.("[data-share-asset]");
-      if (button) void recordShare(button);
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      void handleShareButton(button);
     }, true);
 
     const itemsNode = document.querySelector("#items");
     if (itemsNode) {
-      new MutationObserver(renderShareCounts).observe(itemsNode, { childList: true, subtree: true });
+      new MutationObserver(ensureCardShareButtons).observe(itemsNode, { childList: true, subtree: true });
     }
 
     window.addEventListener("focus", fetchShareCounts);
   }
 
-  window.AudioVaultDownloadTracker = { record, recordShare, refreshShareCounts: fetchShareCounts };
+  window.AudioVaultDownloadTracker = { record, recordShare: handleShareButton, refreshShareCounts: fetchShareCounts };
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", startShareTracking);
