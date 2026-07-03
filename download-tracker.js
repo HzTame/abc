@@ -194,8 +194,10 @@
     document.querySelectorAll("[data-share-asset]").forEach((button) => {
       const assetId = button.dataset.shareAsset;
       const count = Math.max(0, Number(counts[assetId] || 0));
-      button.textContent = count ? `แชร์ ${count.toLocaleString("th-TH")}` : "แชร์";
-      button.title = count ? `แชร์แล้ว ${count.toLocaleString("th-TH")} ครั้ง` : "แชร์ไฟล์นี้";
+      const nextText = count ? `แชร์ ${count.toLocaleString("th-TH")}` : "แชร์";
+      const nextTitle = count ? `แชร์แล้ว ${count.toLocaleString("th-TH")} ครั้ง` : "แชร์ไฟล์นี้";
+      if (button.textContent !== nextText) button.textContent = nextText;
+      if (button.title !== nextTitle) button.title = nextTitle;
     });
   }
 
@@ -283,7 +285,7 @@
 
     const itemsNode = document.querySelector("#items");
     if (itemsNode) {
-      new MutationObserver(ensureCardShareButtons).observe(itemsNode, { childList: true, subtree: true });
+      new MutationObserver(ensureCardShareButtons).observe(itemsNode, { childList: true });
     }
 
     window.addEventListener("focus", fetchShareCounts);
