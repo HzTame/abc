@@ -1,7 +1,10 @@
 (function () {
+  "use strict";
+
   const PROJECT_REF = "khvbvnpiifhbekqdtldm";
   const LIKE_STORAGE_KEY = "audioVaultCommunityPostLikes";
   const LIKE_COUNT_STORAGE_KEY = "audioVaultCommunityPostLikeCounts";
+  const LIKES_API = "/api/community-likes";
   const TARGET_HASH_PREFIX = "post-";
 
   function readJson(key, fallback) {
@@ -63,6 +66,55 @@
     toast.classList.add("show");
     window.clearTimeout(notify.timer);
     notify.timer = window.setTimeout(() => toast.classList.remove("show"), 2600);
+  }
+
+  function applyLikeState(state) {
+    if (state?.counts && typeof state.counts === "object") {
+      writeJson(LIKE_COUNT_STORAGE_KEY, state.counts);
+    }
+    if (Array.isArray(state?.liked)) {
+      writeJson(LIKE_STORAGE_KEY, state.liked);
+    }
+    syncPosts();
+  }
+
+  async function fetchLikeState() {
+    const headers = {};
+    const token = sessionToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    try {
+      const response = await fetch(LIKES_API, {
+        headers,
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      applyLikeState(data);
+    } catch (error) {
+      console.warn("Community like sync failed:", error?.message || error);
+    }
+  }
+
+  async function saveLikeState(postId, liked) {
+    const token = sessionToken();
+    if (!token) throw new Error("Session is required");
+
+    const response = await fetch(LIKES_API, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      credentials: "same-origin",
+      cache: "no-store",
+      body: JSON.stringify({ post_id: postId, liked }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    applyLikeState(data);
+    return data;
   }
 
   function postIdFrom(article) {
@@ -165,7 +217,7 @@
     focusSharedPost();
   }
 
-  function toggleLike(postId) {
+  async function toggleLike(postId) {
     if (!isSignedIn()) {
       notify("สมัครหรือเข้าสู่ระบบก่อนกดถูกใจโพสต์");
       openLoginPrompt();
@@ -175,21 +227,33 @@
 
     const likes = likedPosts();
     const counts = likeCounts();
+    const previousLikes = Array.from(likes);
+    const previousCounts = { ...counts };
     const currentCount = Math.max(0, Number(counts[postId] || 0));
+    const nextLiked = !likes.has(postId);
 
-    if (likes.has(postId)) {
-      likes.delete(postId);
-      counts[postId] = Math.max(0, currentCount - 1);
-      notify("ยกเลิกถูกใจแล้ว");
-    } else {
+    if (nextLiked) {
       likes.add(postId);
       counts[postId] = currentCount + 1;
-      notify("กดใจโพสต์นี้แล้ว");
+    } else {
+      likes.delete(postId);
+      counts[postId] = Math.max(0, currentCount - 1);
     }
 
     writeJson(LIKE_STORAGE_KEY, Array.from(likes));
     writeJson(LIKE_COUNT_STORAGE_KEY, counts);
     syncPosts();
+
+    try {
+      await saveLikeState(postId, nextLiked);
+      notify(nextLiked ? "กดใจโพสต์นี้แล้ว" : "ยกเลิกถูกใจแล้ว");
+    } catch (error) {
+      writeJson(LIKE_STORAGE_KEY, previousLikes);
+      writeJson(LIKE_COUNT_STORAGE_KEY, previousCounts);
+      syncPosts();
+      notify("บันทึกถูกใจไม่สำเร็จ ลองใหม่อีกครั้ง");
+      void fetchLikeState();
+    }
   }
 
   async function sharePost(postId, article) {
@@ -332,6 +396,7 @@
 
     injectStyles();
     syncPosts();
+    void fetchLikeState();
 
     const observer = new MutationObserver(syncPosts);
     observer.observe(postsNode, { childList: true });
@@ -343,7 +408,7 @@
       if (likeButton) {
         event.preventDefault();
         event.stopPropagation();
-        toggleLike(likeButton.dataset.communityLike);
+        void toggleLike(likeButton.dataset.communityLike);
         return;
       }
 
@@ -357,7 +422,10 @@
 
     window.addEventListener("hashchange", focusSharedPost);
     window.addEventListener("storage", syncPosts);
-    window.addEventListener("focus", syncPosts);
+    window.addEventListener("focus", () => {
+      syncPosts();
+      void fetchLikeState();
+    });
   }
 
   if (document.readyState === "loading") {

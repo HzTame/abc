@@ -425,6 +425,14 @@ async function verifyUserRequest(req) {
   }
 }
 
+async function optionalUserRequest(req) {
+  if (!sameOrigin(req)) return { status: 403, error: "Origin is not allowed" };
+  const authHeader = String(req.headers.authorization || "");
+  const token = authHeader.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  if (!token) return { ok: true, user: null };
+  return verifyUserRequest(req);
+}
+
 function activePresenceUsers() {
   const now = Date.now();
   for (const [id, user] of presenceUsers.entries()) {
@@ -551,6 +559,84 @@ async function insertActivityLog(row) {
   }
 }
 
+async function fetchCommunityLikeState(userId = "") {
+  const url = new URL(`${SUPABASE_URL}/rest/v1/activity_logs`);
+  url.searchParams.set("select", "action,user_id,old_name,new_name,created_at");
+  url.searchParams.set("action", "in.(community_post_like,community_post_unlike)");
+  url.searchParams.set("order", "created_at.desc");
+  url.searchParams.set("limit", "5000");
+
+  const data = await fetchJson(url.toString(), {
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      Accept: "application/json",
+    },
+  }, 7000);
+
+  const counts = {};
+  const liked = new Set();
+  const seen = new Set();
+  for (const entry of Array.isArray(data) ? data : []) {
+    const postId = text(entry.old_name, 160);
+    const rowUserId = text(entry.user_id, 80);
+    if (!postId || !rowUserId) continue;
+    const key = `${postId}\n${rowUserId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const isLiked = entry.action === "community_post_like" || entry.new_name === "liked";
+    if (!isLiked) continue;
+    counts[postId] = (counts[postId] || 0) + 1;
+    if (userId && rowUserId === userId) liked.add(postId);
+  }
+
+  return { counts, liked: [...liked] };
+}
+
+async function handleCommunityLikesApi(req, res) {
+  if (req.method === "GET") {
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return json(res, 200, { counts: {}, liked: [] });
+
+    const auth = await optionalUserRequest(req);
+    if (!auth.ok) return json(res, auth.status || 401, { error: auth.error || "Unauthorized" });
+
+    try {
+      const state = await fetchCommunityLikeState(text(auth.user?.id, 80));
+      return json(res, 200, state);
+    } catch (error) {
+      return json(res, 502, { error: text(error.message, 200) });
+    }
+  }
+
+  if (req.method === "POST") {
+    const auth = await verifyUserRequest(req);
+    if (!auth.ok) return json(res, auth.status || 401, { error: auth.error || "Unauthorized" });
+
+    try {
+      const input = await readJson(req);
+      const postId = text(input.post_id || input.postId || input.id || "", 160);
+      if (!postId) return json(res, 400, { error: "Post id is required" });
+
+      const liked = input.liked !== false;
+      await insertActivityLog({
+        action: liked ? "community_post_like" : "community_post_unlike",
+        user_id: text(auth.user.id, 80),
+        email: text(auth.user.email, 254),
+        old_name: postId,
+        new_name: liked ? "liked" : "unliked",
+      });
+
+      const state = await fetchCommunityLikeState(text(auth.user.id, 80));
+      return json(res, 200, { ok: true, ...state });
+    } catch (error) {
+      return json(res, error.status || 400, { error: text(error.message, 200) });
+    }
+  }
+
+  return json(res, 405, { error: "Method not allowed" });
+}
+
 async function handleDownloadEventApi(req, res) {
   if (req.method !== "POST") return json(res, 405, { error: "Method not allowed" });
 
@@ -670,6 +756,10 @@ const server = http.createServer(async (req, res) => {
 
   if (rawUrl.split("?")[0] === "/api/admin-users") {
     return handleAdminUsersApi(req, res);
+  }
+
+  if (rawUrl.split("?")[0] === "/api/community-likes") {
+    return handleCommunityLikesApi(req, res);
   }
 
   if (rawUrl.split("?")[0] === "/api/download-event") {
