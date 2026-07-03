@@ -157,7 +157,7 @@
     button.setAttribute("aria-pressed", String(isLiked));
     button.setAttribute("aria-disabled", String(!signedIn));
     button.title = signedIn ? (isLiked ? "เลิกถูกใจโพสต์นี้" : "กดใจโพสต์นี้") : "สมัครหรือเข้าสู่ระบบก่อนกดถูกใจโพสต์";
-    if (icon) icon.textContent = isLiked ? "♥" : "♡";
+    if (icon) icon.textContent = isLiked ? "❤️" : "🤍";
     if (label) label.textContent = isLiked ? "ชอบแล้ว" : "ถูกใจ";
     if (countNode) countNode.textContent = count.toLocaleString("th-TH");
   }
@@ -185,7 +185,7 @@
       const likeIcon = document.createElement("span");
       likeIcon.className = "post-like-icon";
       likeIcon.setAttribute("aria-hidden", "true");
-      likeIcon.textContent = "♡";
+      likeIcon.textContent = "🤍";
 
       const likeLabel = document.createElement("span");
       likeLabel.className = "post-like-label";
