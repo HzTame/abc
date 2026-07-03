@@ -30,6 +30,18 @@ const PUBLIC_FILES = new Set([
   "upload.js",
   "security.js",
   "presence.js",
+  "community-actions.js",
+]);
+
+const FILE_ALIASES = new Map([
+  ["home.html", "index.html"],
+  ["list.html", "48291.html"],
+  ["comm.html", "73518.html"],
+  ["community.html", "73518.html"],
+  ["about.html", "26974.html"],
+  ["upload.html", "91463.html"],
+  ["admin.html", "53827.html"],
+  ["share.html", "68145.html"],
 ]);
 
 const MIME_TYPES = {
@@ -521,7 +533,8 @@ async function handleAdminUsersApi(req, res) {
   }
 }
 function serveFile(req, res, pathname) {
-  const fileName = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
+  const requestName = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
+  const fileName = FILE_ALIASES.get(requestName) || requestName;
   if (!PUBLIC_FILES.has(fileName)) {
     securityHeaders(res);
     res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
