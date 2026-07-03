@@ -695,75 +695,6 @@ async function handleDownloadLogsApi(req, res) {
   }
 }
 
-async function fetchAssetShareCounts() {
-  const url = new URL(`${SUPABASE_URL}/rest/v1/activity_logs`);
-  url.searchParams.set("select", "old_name");
-  url.searchParams.set("action", "eq.asset_share");
-  url.searchParams.set("order", "created_at.desc");
-  url.searchParams.set("limit", "5000");
-
-  const data = await fetchJson(url.toString(), {
-    headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      Accept: "application/json",
-    },
-  }, 7000);
-
-  const counts = {};
-  for (const entry of Array.isArray(data) ? data : []) {
-    const assetId = text(entry.old_name, 160);
-    if (!assetId) continue;
-    counts[assetId] = (counts[assetId] || 0) + 1;
-  }
-  return counts;
-}
-
-async function handleShareCountsApi(req, res) {
-  if (req.method !== "GET") return json(res, 405, { error: "Method not allowed" });
-  if (!sameOrigin(req)) return json(res, 403, { error: "Origin is not allowed" });
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return json(res, 200, { counts: {} });
-
-  try {
-    const counts = await fetchAssetShareCounts();
-    return json(res, 200, { counts });
-  } catch (error) {
-    return json(res, 502, { error: text(error.message, 200) });
-  }
-}
-
-async function handleShareEventApi(req, res) {
-  if (req.method !== "POST") return json(res, 405, { error: "Method not allowed" });
-  if (!sameOrigin(req)) return json(res, 403, { error: "Origin is not allowed" });
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return json(res, 202, { ok: true, counts: {} });
-
-  let user = null;
-  const authHeader = String(req.headers.authorization || "");
-  if (authHeader) {
-    const auth = await optionalUserRequest(req);
-    if (auth.ok) user = auth.user;
-  }
-
-  try {
-    const input = await readJson(req);
-    const assetId = text(input.asset_id || input.assetId || input.id || "", 160);
-    const assetTitle = text(input.asset_title || input.assetTitle || input.file_name || input.fileName || "Unknown file", 300);
-    if (!assetId && !assetTitle) return json(res, 400, { error: "File data is required" });
-
-    await insertActivityLog({
-      action: "asset_share",
-      user_id: text(user?.id, 80),
-      email: text(user?.email, 254),
-      old_name: assetId || assetTitle,
-      new_name: assetTitle || assetId,
-    });
-
-    const counts = await fetchAssetShareCounts();
-    return json(res, 200, { ok: true, counts });
-  } catch (error) {
-    return json(res, error.status || 400, { error: text(error.message, 200) });
-  }
-}
 function serveFile(req, res, pathname) {
   const requestName = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
   const fileName = FILE_ALIASES.get(requestName) || requestName;
@@ -838,14 +769,6 @@ const server = http.createServer(async (req, res) => {
 
   if (rawUrl.split("?")[0] === "/api/download-logs") {
     return handleDownloadLogsApi(req, res);
-  }
-
-  if (rawUrl.split("?")[0] === "/api/share-counts") {
-    return handleShareCountsApi(req, res);
-  }
-
-  if (rawUrl.split("?")[0] === "/api/share-event") {
-    return handleShareEventApi(req, res);
   }
 
   if (rawUrl.split("?")[0] === "/api/presence") {
