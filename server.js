@@ -31,6 +31,7 @@ const PUBLIC_FILES = new Set([
   "security.js",
   "presence.js",
   "community-actions.js",
+  "download-tracker.js",
 ]);
 
 const FILE_ALIASES = new Map([
@@ -532,6 +533,81 @@ async function handleAdminUsersApi(req, res) {
     return json(res, 502, { error: text(error.message, 200) });
   }
 }
+
+async function insertActivityLog(row) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/activity_logs`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify(row),
+  });
+  if (!response.ok) {
+    const message = await response.text().catch(() => "");
+    throw new Error(text(message, 200) || `HTTP ${response.status}`);
+  }
+}
+
+async function handleDownloadEventApi(req, res) {
+  if (req.method !== "POST") return json(res, 405, { error: "Method not allowed" });
+
+  const auth = await verifyUserRequest(req);
+  if (!auth.ok) return json(res, auth.status || 401, { error: auth.error || "Unauthorized" });
+
+  try {
+    const input = await readJson(req);
+    const assetId = text(input.asset_id || input.assetId || input.id || "", 160);
+    const fileTitle = text(input.asset_title || input.assetTitle || input.file_name || input.fileName || "Unknown file", 300);
+    if (!assetId && !fileTitle) return json(res, 400, { error: "File data is required" });
+
+    await insertActivityLog({
+      action: "asset_download",
+      user_id: text(auth.user.id, 80),
+      email: text(auth.user.email, 254),
+      old_name: assetId,
+      new_name: fileTitle,
+    });
+    return json(res, 202, { ok: true });
+  } catch (error) {
+    return json(res, error.status || 400, { error: text(error.message, 200) });
+  }
+}
+
+async function handleDownloadLogsApi(req, res) {
+  if (req.method !== "GET") return json(res, 405, { error: "Method not allowed" });
+
+  const admin = await verifyAdminRequest(req);
+  if (!admin.ok) return json(res, admin.status || 403, { error: admin.error || "Forbidden" });
+
+  try {
+    const url = new URL(`${SUPABASE_URL}/rest/v1/activity_logs`);
+    url.searchParams.set("select", "user_id,email,old_name,new_name,created_at");
+    url.searchParams.set("action", "eq.asset_download");
+    url.searchParams.set("order", "created_at.desc");
+    url.searchParams.set("limit", "300");
+    const data = await fetchJson(url.toString(), {
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        Accept: "application/json",
+      },
+    }, 7000);
+
+    const logs = (Array.isArray(data) ? data : []).map((entry) => ({
+      user_id: text(entry.user_id, 80),
+      email: text(entry.email, 254),
+      asset_id: text(entry.old_name, 160),
+      asset_title: text(entry.new_name, 300),
+      created_at: text(entry.created_at, 80),
+    }));
+    return json(res, 200, { count: logs.length, logs });
+  } catch (error) {
+    return json(res, 502, { error: text(error.message, 200) });
+  }
+}
 function serveFile(req, res, pathname) {
   const requestName = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
   const fileName = FILE_ALIASES.get(requestName) || requestName;
@@ -594,6 +670,14 @@ const server = http.createServer(async (req, res) => {
 
   if (rawUrl.split("?")[0] === "/api/admin-users") {
     return handleAdminUsersApi(req, res);
+  }
+
+  if (rawUrl.split("?")[0] === "/api/download-event") {
+    return handleDownloadEventApi(req, res);
+  }
+
+  if (rawUrl.split("?")[0] === "/api/download-logs") {
+    return handleDownloadLogsApi(req, res);
   }
 
   if (rawUrl.split("?")[0] === "/api/presence") {
