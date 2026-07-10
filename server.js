@@ -161,7 +161,7 @@ function securityHeaders(res) {
       "img-src 'self' data: blob: https:",
       "media-src 'self' blob: https:",
       "font-src 'self' data:",
-      "connect-src 'self' https://khvbvnpiifhbekqdtldm.supabase.co wss://khvbvnpiifhbekqdtldm.supabase.co https://ipwho.is https://ipapi.co https://ipinfo.io https://api.ipify.org https://api64.ipify.org",
+      "connect-src 'self' https://khvbvnpiifhbekqdtldm.supabase.co wss://khvbvnpiifhbekqdtldm.supabase.co https://ipwho.is https://ipapi.co https://ipinfo.io https://api.ipify.org https://api.cloudinary.com https://res.cloudinary.com https://api64.ipify.org",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
