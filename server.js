@@ -14,6 +14,7 @@ const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || process.env.ADMIN_EMAIL 
   .map((email) => email.trim().toLowerCase())
   .filter(Boolean);
 const MAX_BODY_BYTES = 16 * 1024;
+const MAINTENANCE_MODE = String(process.env.MAINTENANCE_MODE || "1") !== "0";
 
 const PUBLIC_FILES = new Set([
   "index.html",
@@ -167,6 +168,97 @@ function securityHeaders(res) {
       "form-action 'self'",
     ].join("; ")
   );
+}
+
+
+function serveMaintenance(req, res) {
+  const body = `<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The Audio Vault - Maintenance</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        linear-gradient(rgba(9, 12, 25, .72), rgba(12, 18, 28, .78)),
+        radial-gradient(circle at 25% 20%, rgba(255, 98, 62, .22), transparent 34%),
+        radial-gradient(circle at 78% 74%, rgba(51, 172, 150, .2), transparent 36%),
+        #101522;
+      color: #f8fafc;
+    }
+    main {
+      width: min(620px, 100%);
+      border: 1px solid rgba(255, 255, 255, .18);
+      border-radius: 8px;
+      padding: clamp(28px, 5vw, 48px);
+      background: rgba(10, 15, 28, .76);
+      box-shadow: 0 24px 80px rgba(0, 0, 0, .38);
+      text-align: center;
+    }
+    .label {
+      margin: 0 0 14px;
+      color: #ff6b45;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(34px, 7vw, 64px);
+      line-height: 1.02;
+      letter-spacing: 0;
+    }
+    p {
+      margin: 18px auto 0;
+      max-width: 48ch;
+      color: #cbd5e1;
+      font-size: clamp(16px, 2.5vw, 19px);
+      line-height: 1.7;
+    }
+    .date {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      margin-top: 26px;
+      padding: 10px 16px;
+      border: 1px solid rgba(255, 255, 255, .18);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .08);
+      color: #fff;
+      font-weight: 800;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="label">The Audio Vault</p>
+    <h1>ปิดปรับปรุงชั่วคราว</h1>
+    <p>กำลังพักระบบเพื่อแก้ปัญหาโควตาหลังบ้านและย้ายไฟล์หนักออกไป CDN ให้เว็บกลับมาเสถียรกว่าเดิม</p>
+    <div class="date">คาดว่าจะกลับมาหลัง 16 ก.ค. 2026</div>
+  </main>
+</body>
+</html>`;
+
+  securityHeaders(res);
+  res.writeHead(503, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Length": Buffer.byteLength(body),
+    "Cache-Control": "no-store",
+    "Retry-After": "86400",
+  });
+  if (req.method === "HEAD") return res.end();
+  return res.end(body);
 }
 
 function json(res, status, payload) {
@@ -749,6 +841,13 @@ const server = http.createServer(async (req, res) => {
       discordConfigured: discordConfigured(),
       databaseConfigured: Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY),
     });
+  }
+
+  if (MAINTENANCE_MODE) {
+    if (rawUrl.split("?")[0].startsWith("/api/")) {
+      return json(res, 503, { error: "Maintenance" });
+    }
+    return serveMaintenance(req, res);
   }
 
   if (rawUrl.split("?")[0] === "/api/security-event") {
