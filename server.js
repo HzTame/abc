@@ -1,4 +1,5 @@
 "use strict";
+const MAINTENANCE_MODE = String(process.env.MAINTENANCE_MODE || "0") !== "0";
 
 const http = require("node:http");
 const fs = require("node:fs");
@@ -751,7 +752,20 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
-  if (rawUrl.split("?")[0] === "/api/security-event") {
+    if (MAINTENANCE_MODE) {
+    const body = '<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>The Audio Vault — กำลังปรับปรุง</title><style>:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 20% 10%,#1b3152 0,transparent 38%),radial-gradient(circle at 85% 90%,#4b1f3e 0,transparent 40%),#070b16;color:#f7f8fc;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}.card{width:min(680px,100%);padding:52px 34px;text-align:center;border:1px solid rgba(255,255,255,.14);border-radius:28px;background:rgba(13,19,35,.82);box-shadow:0 24px 80px rgba(0,0,0,.45)}.logo{width:68px;height:68px;margin:auto;border-radius:20px;display:grid;place-items:center;font-size:32px;background:linear-gradient(135deg,#ff8a48,#e84283)}h1{margin:24px 0 12px;font-size:clamp(30px,6vw,48px);line-height:1.1}p{margin:0 auto;color:#b8c1d9;font-size:18px;line-height:1.75;max-width:520px}.status{display:inline-flex;align-items:center;gap:9px;margin-top:28px;padding:10px 16px;border-radius:999px;background:rgba(255,255,255,.07);color:#dbe2f5}.dot{width:9px;height:9px;border-radius:50%;background:#ff704d;box-shadow:0 0 16px #ff704d}</style></head><body><main class="card"><div class="logo">♫</div><h1>เว็บไซต์กำลังปรับปรุง</h1><p>ขณะนี้ The Audio Vault อยู่ระหว่างการย้ายและปรับปรุงระบบ<br>กรุณากลับมาใหม่อีกครั้งเร็ว ๆ นี้</p><div class="status"><span class="dot"></span>กำลังดำเนินการปรับปรุง</div></main></body></html>';
+    securityHeaders(res);
+    res.writeHead(503, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Length": Buffer.byteLength(body),
+      "Cache-Control": "no-store",
+      "Retry-After": "3600",
+    });
+    if (method === "HEAD") return res.end();
+    return res.end(body);
+  }
+
+if (rawUrl.split("?")[0] === "/api/security-event") {
     return handleSecurityApi(req, res, ip);
   }
 
