@@ -7,11 +7,31 @@
   const statTotal = document.querySelector("#statTotal");
   if (!itemsNode || !searchInput) return;
 
+  const categoryLabels = {
+    loop: "Loop",
+    plugin: "Plugin",
+    project: "Project",
+    music: "Music",
+    sample: "Fx"
+  };
+  const categoryDescriptions = {
+    loop: "ลูปเสียงสำหรับนำไปต่อยอดงานเพลง",
+    plugin: "ปลั๊กอินและเครื่องมือสำหรับงานเสียง",
+    project: "ไฟล์โปรเจกต์สำหรับศึกษาและต่อยอด",
+    music: "ไฟล์เสียงแบ่งปันจากสมาชิก",
+    sample: "ซาวด์และเอฟเฟกต์สำหรับงานเพลง"
+  };
+
   let r2Items = [];
   let activeFilter = "all";
 
   function escapeHtml(value) {
-    return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+    return String(value == null ? "" : value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
   }
 
   function formatBytes(value) {
@@ -23,42 +43,50 @@
     return (amount >= 10 || index === 0 ? amount.toFixed(0) : amount.toFixed(1)) + " " + units[index];
   }
 
-  function isAudio(item) {
-    return /^(MP3|WAV|FLAC|AIFF?|M4A|OGG|OGA|AAC|WEBM)$/i.test(item.format || "");
-  }
-
   function render() {
     if (!r2Items.length) return;
+
     const query = searchInput.value.trim().toLowerCase();
-    const visible = r2Items.filter((item) => {
+    const visible = r2Items.filter(function (item) {
       const filterMatches = activeFilter === "all" || item.category === activeFilter;
-      const queryMatches = !query || [item.title, item.fileName, item.format, item.category].join(" ").toLowerCase().includes(query);
+      const queryMatches = !query || [item.title, item.fileName, item.format, item.category]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
       return filterMatches && queryMatches;
     });
 
-    itemsNode.innerHTML = visible.map((item) => {
-      const title = escapeHtml(item.title || item.fileName || "ไฟล์จาก R2");
-      const category = escapeHtml(item.category || "sample");
+    itemsNode.innerHTML = visible.map(function (item) {
+      const rawCategory = item.category || "sample";
+      const category = escapeHtml(rawCategory);
+      const categoryLabel = escapeHtml(categoryLabels[rawCategory] || rawCategory);
+      const description = escapeHtml(categoryDescriptions[rawCategory] || "ไฟล์แบ่งปันจากสมาชิก The Audio Vault");
+      const title = escapeHtml(item.title || item.fileName || "ไฟล์แบ่งปัน");
       const format = escapeHtml(item.format || "FILE");
+      const formatTag = escapeHtml(String(item.format || "file").toLowerCase());
       const size = escapeHtml(formatBytes(item.sizeBytes));
-      const publicUrl = escapeHtml(item.publicUrl || "");
       const downloadUrl = escapeHtml(item.downloadUrl || item.publicUrl || "#");
-      const modified = item.modifiedAt ? new Date(item.modifiedAt).toLocaleDateString("th-TH") : "";
-      return `<article class="asset-card no-cover" data-type="${category}">
-        <div class="asset-body">
-          <div class="asset-meta"><span>${format} · R2</span><span>${size}</span></div>
-          <h3>${title}</h3>
-          <p>ไฟล์จริงจาก Cloudflare R2${modified ? ` · อัปเดต ${escapeHtml(modified)}` : ""}</p>
-          ${isAudio(item) && publicUrl ? `<audio controls preload="none" src="${publicUrl}" style="width:100%;margin:10px 0"></audio>` : ""}
-          <div class="tag-row"><span>R2</span><span>${format}</span></div>
-          <div class="asset-foot"><span>Cloudflare R2</span><span>${size}</span></div>
-          <div class="asset-actions download-only"><a class="download-button" href="${downloadUrl}">ดาวน์โหลด</a></div>
-        </div>
-      </article>`;
+      const itemId = escapeHtml(item.id || item.key || item.fileName || title);
+
+      return '<article class="asset-card no-cover" data-type="' + category + '">' +
+        '<div class="asset-body">' +
+          '<div class="asset-meta"><span>' + format + ' · ' + categoryLabel + '</span><span>' + size + '</span></div>' +
+          '<h3>' + title + '</h3>' +
+          '<p>' + description + '</p>' +
+          '<div class="tag-row"><span>' + categoryLabel.toLowerCase() + '</span><span>' + formatTag + '</span><span>free</span></div>' +
+          '<div class="asset-foot"><span>โดย The Audio Vault</span><span>💬 0 คอมเมนต์</span></div>' +
+          '<p>0 โหลด</p>' +
+          '<div class="asset-actions download-only">' +
+            '<a class="download-button" href="' + downloadUrl + '" data-download-id="' + itemId + '" data-download-title="' + title + '">ดาวน์โหลด</a>' +
+          '</div>' +
+        '</div>' +
+      '</article>';
     }).join("");
 
-    if (!visible.length) itemsNode.innerHTML = '<p class="empty-state">ไม่พบไฟล์ที่ตรงกับการค้นหา</p>';
-    if (resultCount) resultCount.textContent = visible.length + " รายการจาก R2";
+    if (!visible.length) {
+      itemsNode.innerHTML = '<div class="empty">ไม่พบรายการที่ตรงกัน</div>';
+    }
+    if (resultCount) resultCount.textContent = "พบ " + visible.length + " รายการ";
     if (statTotal) statTotal.textContent = String(r2Items.length);
   }
 
@@ -69,15 +97,24 @@
       const payload = await response.json();
       r2Items = Array.isArray(payload.items) ? payload.items : [];
       if (!r2Items.length) return;
-      document.querySelectorAll("[data-filter]").forEach((button) => button.addEventListener("click", () => {
-        activeFilter = button.dataset.filter || "all";
+
+      document.querySelectorAll("[data-filter]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          activeFilter = button.dataset.filter || "all";
+          window.setTimeout(render, 0);
+        });
+      });
+      document.querySelectorAll("[data-view]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          window.setTimeout(render, 0);
+        });
+      });
+      searchInput.addEventListener("input", function () {
         window.setTimeout(render, 0);
-      }));
-      document.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => window.setTimeout(render, 0)));
-      searchInput.addEventListener("input", () => window.setTimeout(render, 0));
+      });
       window.setTimeout(render, 900);
     } catch (error) {
-      console.warn("R2 fallback unavailable:", error?.message || error);
+      console.warn("R2 fallback unavailable:", error && error.message ? error.message : error);
     }
   }
 
