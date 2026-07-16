@@ -93,6 +93,7 @@ function getR2Client() {
   if (!r2Client) {
     r2Client = new S3Client({
       region: "auto",
+      forcePathStyle: true,
       endpoint: "https://" + R2_ACCOUNT_ID + ".r2.cloudflarestorage.com",
       requestHandler: new NodeHttpHandler({
         httpsAgent: new https.Agent({ keepAlive: true, minVersion: "TLSv1.2", maxVersion: "TLSv1.2" }),
