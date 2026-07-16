@@ -3,27 +3,17 @@
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
-const { randomUUID } = require("node:crypto");
-const { S3Client, PutObjectCommand, ListObjectsV2Command, GetObjectCommand } = require("@aws-sdk/client-s3");
-const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
 const PORT = Number(process.env.PORT || 10000);
 const ROOT = __dirname;
 const DISCORD_WEBHOOK_URL = String(process.env.DISCORD_WEBHOOK_URL || "").trim();
 const SUPABASE_URL = String(process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
-const R2_ACCOUNT_ID = String(process.env.R2_ACCOUNT_ID || "").trim();
-const R2_ACCESS_KEY_ID = String(process.env.R2_ACCESS_KEY_ID || "").trim();
-const R2_SECRET_ACCESS_KEY = String(process.env.R2_SECRET_ACCESS_KEY || "").trim();
-const R2_BUCKET = String(process.env.R2_BUCKET || "audio-vault-files").trim();
-const R2_PUBLIC_BASE_URL = String(process.env.R2_PUBLIC_BASE_URL || "").replace(/\/$/, "");
-const R2_MAX_UPLOAD_BYTES = Math.max(1, Number(process.env.R2_MAX_UPLOAD_BYTES || 536870912));
 const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || process.env.ADMIN_EMAIL || "mameenokair@gmail.com")
   .split(/[,\s]+/)
   .map((email) => email.trim().toLowerCase())
   .filter(Boolean);
 const MAX_BODY_BYTES = 16 * 1024;
-const MAINTENANCE_MODE = String(process.env.MAINTENANCE_MODE || "0") === "1";
 
 const PUBLIC_FILES = new Set([
   "index.html",
@@ -38,8 +28,6 @@ const PUBLIC_FILES = new Set([
   "admin.js",
   "admin-extra.js",
   "upload.js",
-  "r2-upload.js",
-  "r2-fallback.js",
   "security.js",
   "presence.js",
   "community-actions.js",
@@ -80,44 +68,6 @@ const recentAlerts = new Map();
 const networkCache = new Map();
 const presenceUsers = new Map();
 const PRESENCE_TTL_MS = 45_000;
-let r2Client;
-
-function r2Configured() {
-  return Boolean(R2_ACCOUNT_ID && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_BUCKET && R2_PUBLIC_BASE_URL);
-}
-
-function getR2Client() {
-  if (!r2Configured()) throw Object.assign(new Error("R2 is not configured"), { status: 503 });
-  if (!r2Client) {
-    r2Client = new S3Client({
-      region: "auto",
-      forcePathStyle: true,
-      endpoint: "https://" + R2_ACCOUNT_ID + ".r2.cloudflarestorage.com",
-      credentials: {
-        accessKeyId: R2_ACCESS_KEY_ID,
-        secretAccessKey: R2_SECRET_ACCESS_KEY,
-      },
-    });
-  }
-  return r2Client;
-}
-
-function safeR2FileName(value) {
-  const original = String(value || "file").normalize("NFKD");
-  const extension = original.match(/\.([A-Za-z0-9]{1,12})$/)?.[0]?.toLowerCase() || "";
-  const stem = (extension ? original.slice(0, -extension.length) : original)
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^A-Za-z0-9._-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^[._-]+|[._-]+$/g, "")
-    .slice(0, 120) || "file";
-  return stem + extension;
-}
-
-function publicR2Url(objectKey) {
-  const encodedKey = String(objectKey).split("/").map(encodeURIComponent).join("/");
-  return R2_PUBLIC_BASE_URL + "/" + encodedKey;
-}
 
 function text(value, max = 500) {
   const result = String(value ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").trim();
@@ -211,103 +161,12 @@ function securityHeaders(res) {
       "img-src 'self' data: blob: https:",
       "media-src 'self' blob: https:",
       "font-src 'self' data:",
-      "connect-src 'self' https://khvbvnpiifhbekqdtldm.supabase.co wss://khvbvnpiifhbekqdtldm.supabase.co https://ipwho.is https://ipapi.co https://ipinfo.io https://api.ipify.org https://api.cloudinary.com https://res.cloudinary.com https://*.r2.cloudflarestorage.com https://api64.ipify.org",
+      "connect-src 'self' https://khvbvnpiifhbekqdtldm.supabase.co wss://khvbvnpiifhbekqdtldm.supabase.co https://ipwho.is https://ipapi.co https://ipinfo.io https://api.ipify.org https://api64.ipify.org",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
     ].join("; ")
   );
-}
-
-
-function serveMaintenance(req, res) {
-  const body = `<!doctype html>
-<html lang="th">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>The Audio Vault - Maintenance</title>
-  <style>
-    :root { color-scheme: dark; }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 24px;
-      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background:
-        linear-gradient(rgba(9, 12, 25, .72), rgba(12, 18, 28, .78)),
-        radial-gradient(circle at 25% 20%, rgba(255, 98, 62, .22), transparent 34%),
-        radial-gradient(circle at 78% 74%, rgba(51, 172, 150, .2), transparent 36%),
-        #101522;
-      color: #f8fafc;
-    }
-    main {
-      width: min(620px, 100%);
-      border: 1px solid rgba(255, 255, 255, .18);
-      border-radius: 8px;
-      padding: clamp(28px, 5vw, 48px);
-      background: rgba(10, 15, 28, .76);
-      box-shadow: 0 24px 80px rgba(0, 0, 0, .38);
-      text-align: center;
-    }
-    .label {
-      margin: 0 0 14px;
-      color: #ff6b45;
-      font-size: 13px;
-      font-weight: 800;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-    }
-    h1 {
-      margin: 0;
-      font-size: clamp(34px, 7vw, 64px);
-      line-height: 1.02;
-      letter-spacing: 0;
-    }
-    p {
-      margin: 18px auto 0;
-      max-width: 48ch;
-      color: #cbd5e1;
-      font-size: clamp(16px, 2.5vw, 19px);
-      line-height: 1.7;
-    }
-    .date {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 44px;
-      margin-top: 26px;
-      padding: 10px 16px;
-      border: 1px solid rgba(255, 255, 255, .18);
-      border-radius: 999px;
-      background: rgba(255, 255, 255, .08);
-      color: #fff;
-      font-weight: 800;
-    }
-  </style>
-</head>
-<body>
-  <main>
-    <p class="label">The Audio Vault</p>
-    <h1>ปิดปรับปรุงชั่วคราว</h1>
-    <p>กำลังพักระบบเพื่อแก้ปัญหาโควตาหลังบ้านและย้ายไฟล์หนักออกไป CDN ให้เว็บกลับมาเสถียรกว่าเดิม</p>
-    <div class="date">คาดว่าจะกลับมาหลัง 16 ก.ค. 2026</div>
-  </main>
-</body>
-</html>`;
-
-  securityHeaders(res);
-  res.writeHead(503, {
-    "Content-Type": "text/html; charset=utf-8",
-    "Content-Length": Buffer.byteLength(body),
-    "Cache-Control": "no-store",
-    "Retry-After": "86400",
-  });
-  if (req.method === "HEAD") return res.end();
-  return res.end(body);
 }
 
 function json(res, status, payload) {
@@ -572,117 +431,6 @@ async function optionalUserRequest(req) {
   const token = authHeader.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
   if (!token) return { ok: true, user: null };
   return verifyUserRequest(req);
-}
-
-async function handleR2UploadUrlApi(req, res, ip) {
-  if (req.method !== "POST") return json(res, 405, { error: "Method not allowed" });
-  if (!r2Configured()) return json(res, 503, { error: "R2 is not configured" });
-  if (!checkWindow(apiWindows, "r2:" + ip, 60, 10 * 60 * 1000)) {
-    return json(res, 429, { error: "Too many upload requests" });
-  }
-
-  const auth = await verifyUserRequest(req);
-  if (!auth.ok) return json(res, auth.status || 401, { error: auth.error || "Unauthorized" });
-
-  try {
-    const input = await readJson(req);
-    const fileName = text(input.fileName || input.file_name || "file", 260);
-    const contentType = text(input.contentType || input.content_type || "application/octet-stream", 160);
-    const fileSize = Number(input.fileSize || input.file_size || 0);
-    const requestedFolder = text(input.folder || "files", 60).toLowerCase();
-    const folder = ["audio", "files", "covers"].includes(requestedFolder) ? requestedFolder : "files";
-
-    if (!Number.isFinite(fileSize) || fileSize <= 0) return json(res, 400, { error: "File size is required" });
-    if (fileSize > R2_MAX_UPLOAD_BYTES) {
-      return json(res, 413, { error: "File exceeds the " + Math.round(R2_MAX_UPLOAD_BYTES / 1024 / 1024) + " MB limit" });
-    }
-
-    const objectKey = folder + "/" + Date.now() + "-" + randomUUID() + "-" + safeR2FileName(fileName);
-    const command = new PutObjectCommand({
-      Bucket: R2_BUCKET,
-      Key: objectKey,
-      ContentType: contentType,
-      Metadata: {
-        uploader: text(auth.user.id, 80),
-        originalname: encodeURIComponent(fileName).slice(0, 900),
-      },
-    });
-    const uploadUrl = await getSignedUrl(getR2Client(), command, { expiresIn: 15 * 60 });
-    return json(res, 200, {
-      uploadUrl,
-      objectKey,
-      publicUrl: publicR2Url(objectKey),
-      expiresIn: 15 * 60,
-    });
-  } catch (error) {
-    return json(res, error.status || 500, { error: text(error.message, 240) || "Unable to prepare upload" });
-  }
-}
-
-
-function r2FallbackCategory(objectKey) {
-  const lower = String(objectKey || "").toLowerCase();
-  if (/\.(mp3|wav|flac|aiff?|m4a|ogg|oga|aac|webm)$/.test(lower)) return "loop";
-  if (/\.(zip|rar|7z|als|flp|logicx|rpp)$/.test(lower)) return "project";
-  if (/\.(vst3?|component|dll|exe|dmg|pkg)$/.test(lower)) return "plugin";
-  return "music";
-}
-
-function r2FallbackName(objectKey) {
-  const raw = String(objectKey || "").split("/").pop() || "file";
-  const withoutUploadPrefix = raw.replace(/^\d{10,}-[0-9a-f-]{20,}-/i, "");
-  try { return decodeURIComponent(withoutUploadPrefix); } catch { return withoutUploadPrefix; }
-}
-
-async function handleR2FilesApi(req, res) {
-  if (req.method !== "GET") return json(res, 405, { error: "Method not allowed" });
-  if (!r2Configured()) return json(res, 503, { error: "R2 is not configured" });
-  try {
-    const objects = [];
-    let continuationToken;
-    do {
-      const page = await getR2Client().send(new ListObjectsV2Command({ Bucket: R2_BUCKET, ContinuationToken: continuationToken, MaxKeys: 1000 }));
-      objects.push(...(page.Contents || []));
-      continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
-    } while (continuationToken && objects.length < 5000);
-    const items = objects.filter((object) => object.Key && !String(object.Key).endsWith("/")).map((object) => {
-      const fileName = r2FallbackName(object.Key);
-      const extension = fileName.match(/\.([A-Za-z0-9]{1,12})$/)?.[1]?.toUpperCase() || "FILE";
-      return {
-        id: object.ETag ? String(object.ETag).replace(/"/g, "") : object.Key,
-        key: object.Key,
-        fileName,
-        title: fileName.replace(/\.[^.]+$/, "") || fileName,
-        format: extension,
-        category: r2FallbackCategory(object.Key),
-        sizeBytes: Number(object.Size || 0),
-        modifiedAt: object.LastModified ? new Date(object.LastModified).toISOString() : null,
-        publicUrl: publicR2Url(object.Key),
-        downloadUrl: "/api/r2-download?key=" + encodeURIComponent(object.Key),
-      };
-    }).sort((a, b) => String(b.modifiedAt || "").localeCompare(String(a.modifiedAt || "")));
-    return json(res, 200, { items, count: items.length, source: "cloudflare-r2" });
-  } catch (error) {
-    return json(res, 502, { error: text(error.message, 240) || "Unable to list R2 files" });
-  }
-}
-
-async function handleR2DownloadApi(req, res, rawUrl) {
-  if (req.method !== "GET" && req.method !== "HEAD") return json(res, 405, { error: "Method not allowed" });
-  if (!r2Configured()) return json(res, 503, { error: "R2 is not configured" });
-  try {
-    const requestUrl = new URL(rawUrl, "http://localhost");
-    const objectKey = requestUrl.searchParams.get("key");
-    if (!objectKey || objectKey.length > 1024 || objectKey.includes("\\0")) return json(res, 400, { error: "Invalid object key" });
-    const fileName = r2FallbackName(objectKey).replace(/["\\\\\\r\\n]/g, "_");
-    const asciiName = fileName.replace(/[^\\x20-\\x7e]/g, "_");
-    const command = new GetObjectCommand({ Bucket: R2_BUCKET, Key: objectKey, ResponseContentDisposition: "attachment; filename=\\\"" + asciiName + "\\\"; filename*=UTF-8''" + encodeURIComponent(fileName) });
-    const downloadUrl = await getSignedUrl(getR2Client(), command, { expiresIn: 5 * 60 });
-    res.writeHead(302, { Location: downloadUrl, "Cache-Control": "no-store" });
-    return res.end();
-  } catch (error) {
-    return json(res, 502, { error: text(error.message, 240) || "Unable to prepare download" });
-  }
 }
 
 function activePresenceUsers() {
@@ -1000,32 +748,11 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       discordConfigured: discordConfigured(),
       databaseConfigured: Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY),
-      r2Configured: r2Configured(),
     });
-  }
-
-  if (MAINTENANCE_MODE) {
-    if (rawUrl.split("?")[0].startsWith("/api/")) {
-      return json(res, 503, { error: "Maintenance" });
-    }
-    return serveMaintenance(req, res);
   }
 
   if (rawUrl.split("?")[0] === "/api/security-event") {
     return handleSecurityApi(req, res, ip);
-  }
-
-  if (rawUrl.split("?")[0] === "/api/r2-upload-url") {
-    return handleR2UploadUrlApi(req, res, ip);
-  }
-
-
-  if (rawUrl.split("?")[0] === "/api/r2-files") {
-    return handleR2FilesApi(req, res);
-  }
-
-  if (rawUrl.split("?")[0] === "/api/r2-download") {
-    return handleR2DownloadApi(req, res, rawUrl);
   }
 
   if (rawUrl.split("?")[0] === "/api/admin-users") {
@@ -1085,7 +812,6 @@ if (require.main === module) {
     console.log(`The Audio Vault server listening on port ${PORT}`);
     if (!discordConfigured()) console.warn("DISCORD_WEBHOOK_URL is not configured");
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) console.warn("Supabase server credentials are not configured");
-    if (!r2Configured()) console.warn("R2 credentials are not configured");
   });
 
   process.on("SIGTERM", shutdown);

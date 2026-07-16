@@ -9,10 +9,6 @@
     "check": "node --check server.js && node --check script.js && node --check admin.js && node --check upload.js && node --check security.js"
   },
   "engines": {
-    "node": "22.x"
-  },
-  "dependencies": {
-    "@aws-sdk/client-s3": "^3.1088.0",
-    "@aws-sdk/s3-request-presigner": "^3.1088.0"
+    "node": ">=20"
   }
 }
