@@ -1,13 +1,11 @@
 "use strict";
 
 const http = require("node:http");
-const https = require("node:https");
 const fs = require("node:fs");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { S3Client, PutObjectCommand, ListObjectsV2Command, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
-const { NodeHttpHandler } = require("@smithy/node-http-handler");
 
 const PORT = Number(process.env.PORT || 10000);
 const ROOT = __dirname;
@@ -95,9 +93,6 @@ function getR2Client() {
       region: "auto",
       forcePathStyle: true,
       endpoint: "https://" + R2_ACCOUNT_ID + ".r2.cloudflarestorage.com",
-      requestHandler: new NodeHttpHandler({
-        httpsAgent: new https.Agent({ keepAlive: true, minVersion: "TLSv1.2", maxVersion: "TLSv1.2" }),
-      }),
       credentials: {
         accessKeyId: R2_ACCESS_KEY_ID,
         secretAccessKey: R2_SECRET_ACCESS_KEY,
